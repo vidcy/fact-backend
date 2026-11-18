@@ -1,4 +1,4 @@
-﻿import { Injectable } from '@nestjs/common';
+import { Injectable } from '@nestjs/common';
 import * as QRCode from 'qrcode';
 import { Document } from '../../../entities/document.entity';
 import { Company } from '../../../entities/company.entity';
@@ -42,7 +42,7 @@ export class QrService {
       doc.client_doc_type,
       doc.client_doc_number,
       digestValue,
-    ].join('|');
+    ].join('|') + '|';
   }
 
   /**

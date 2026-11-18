@@ -1,15 +1,20 @@
--- ============================================================================
--- CCOFACT PRO - MIGRACIÓN INICIAL PRISMA ORM (CORPORACIÓN CCOPLEX)
--- ============================================================================
--- Arquitectura Multi-Empresas para Facturación Electrónica SUNAT UBL 2.1
--- Base de Datos: PostgreSQL 18
--- ============================================================================
+-- CreateTable
+CREATE TABLE "users" (
+    "id" UUID NOT NULL DEFAULT uuid_generate_v4(),
+    "email" VARCHAR(150) NOT NULL,
+    "password_hash" VARCHAR(255) NOT NULL,
+    "name" VARCHAR(150) NOT NULL,
+    "role" VARCHAR(50) NOT NULL DEFAULT 'ADMIN',
+    "company_id" UUID,
+    "is_active" BOOLEAN NOT NULL DEFAULT true,
+    "created_at" TIMESTAMPTZ(6) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    "updated_at" TIMESTAMPTZ(6) NOT NULL DEFAULT CURRENT_TIMESTAMP,
 
--- 1. Habilitar extensión UUID para generación criptográfica de identificadores
-CREATE EXTENSION IF NOT EXISTS "uuid-ossp";
+    CONSTRAINT "PK_users_id" PRIMARY KEY ("id")
+);
 
--- 2. Tabla de Empresas Emisoras (Multi-Tenant)
-CREATE TABLE IF NOT EXISTS "companies" (
+-- CreateTable
+CREATE TABLE "companies" (
     "id" UUID NOT NULL DEFAULT uuid_generate_v4(),
     "ruc" VARCHAR(11) NOT NULL,
     "razon_social" VARCHAR(255) NOT NULL,
@@ -27,19 +32,23 @@ CREATE TABLE IF NOT EXISTS "companies" (
     "sol_pass" VARCHAR(100) NOT NULL DEFAULT 'moddatos',
     "certificate_pfx_base64" TEXT,
     "certificate_password" VARCHAR(255),
+    "certificate_filename" VARCHAR(500),
+    "certificate_url" VARCHAR(1000),
+    "certificate_expires_at" TIMESTAMPTZ(6),
+    "certificate_subject" TEXT,
+    "certificate_issuer" TEXT,
     "env_mode" VARCHAR(20) NOT NULL DEFAULT 'BETA',
     "api_key" VARCHAR(128) NOT NULL,
     "webhook_url" VARCHAR(500),
     "is_active" BOOLEAN NOT NULL DEFAULT true,
     "created_at" TIMESTAMPTZ(6) NOT NULL DEFAULT CURRENT_TIMESTAMP,
     "updated_at" TIMESTAMPTZ(6) NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    CONSTRAINT "PK_companies" PRIMARY KEY ("id"),
-    CONSTRAINT "UQ_companies_ruc" UNIQUE ("ruc"),
-    CONSTRAINT "UQ_companies_api_key" UNIQUE ("api_key")
+
+    CONSTRAINT "PK_d4c3e047360e4f2042211910cf3" PRIMARY KEY ("id")
 );
 
--- 3. Tabla de Establecimientos Anexos / Sucursales
-CREATE TABLE IF NOT EXISTS "branches" (
+-- CreateTable
+CREATE TABLE "branches" (
     "id" UUID NOT NULL DEFAULT uuid_generate_v4(),
     "company_id" UUID NOT NULL,
     "code" VARCHAR(10) NOT NULL DEFAULT '0000',
@@ -48,12 +57,12 @@ CREATE TABLE IF NOT EXISTS "branches" (
     "ubigeo" VARCHAR(6) NOT NULL DEFAULT '150101',
     "is_active" BOOLEAN NOT NULL DEFAULT true,
     "created_at" TIMESTAMPTZ(6) NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    CONSTRAINT "PK_branches" PRIMARY KEY ("id"),
-    CONSTRAINT "FK_branches_company" FOREIGN KEY ("company_id") REFERENCES "companies"("id") ON DELETE CASCADE
+
+    CONSTRAINT "PK_7f37d3b42defea97f1df0d19535" PRIMARY KEY ("id")
 );
 
--- 4. Tabla de Series y Correlativos Atómicos (Garantía Cero Duplicados)
-CREATE TABLE IF NOT EXISTS "series" (
+-- CreateTable
+CREATE TABLE "series" (
     "id" UUID NOT NULL DEFAULT uuid_generate_v4(),
     "company_id" UUID NOT NULL,
     "branch_id" UUID,
@@ -63,14 +72,12 @@ CREATE TABLE IF NOT EXISTS "series" (
     "is_active" BOOLEAN NOT NULL DEFAULT true,
     "created_at" TIMESTAMPTZ(6) NOT NULL DEFAULT CURRENT_TIMESTAMP,
     "updated_at" TIMESTAMPTZ(6) NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    CONSTRAINT "PK_series" PRIMARY KEY ("id"),
-    CONSTRAINT "UQ_series_company_doc_series" UNIQUE ("company_id", "document_type", "series"),
-    CONSTRAINT "FK_series_company" FOREIGN KEY ("company_id") REFERENCES "companies"("id") ON DELETE CASCADE,
-    CONSTRAINT "FK_series_branch" FOREIGN KEY ("branch_id") REFERENCES "branches"("id") ON DELETE SET NULL
+
+    CONSTRAINT "PK_e725676647382eb54540d7128ba" PRIMARY KEY ("id")
 );
 
--- 5. Tabla Principal de Comprobantes de Pago Electrónicos (CPE)
-CREATE TABLE IF NOT EXISTS "documents" (
+-- CreateTable
+CREATE TABLE "documents" (
     "id" UUID NOT NULL DEFAULT uuid_generate_v4(),
     "company_id" UUID NOT NULL,
     "branch_id" UUID,
@@ -122,15 +129,12 @@ CREATE TABLE IF NOT EXISTS "documents" (
     "metadata" JSONB,
     "created_at" TIMESTAMPTZ(6) NOT NULL DEFAULT CURRENT_TIMESTAMP,
     "updated_at" TIMESTAMPTZ(6) NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    CONSTRAINT "PK_documents" PRIMARY KEY ("id"),
-    CONSTRAINT "UQ_documents_company_doc_series_num" UNIQUE ("company_id", "document_type", "series", "number"),
-    CONSTRAINT "UQ_documents_company_idempotency" UNIQUE ("company_id", "idempotency_key"),
-    CONSTRAINT "FK_documents_company" FOREIGN KEY ("company_id") REFERENCES "companies"("id") ON DELETE CASCADE,
-    CONSTRAINT "FK_documents_branch" FOREIGN KEY ("branch_id") REFERENCES "branches"("id") ON DELETE SET NULL
+
+    CONSTRAINT "PK_ac51aa5181ee2036f5ca482857c" PRIMARY KEY ("id")
 );
 
--- 6. Tabla de Líneas de Detalle del Comprobante
-CREATE TABLE IF NOT EXISTS "document_items" (
+-- CreateTable
+CREATE TABLE "document_items" (
     "id" UUID NOT NULL DEFAULT uuid_generate_v4(),
     "document_id" UUID NOT NULL,
     "item_order" INTEGER NOT NULL,
@@ -145,12 +149,12 @@ CREATE TABLE IF NOT EXISTS "document_items" (
     "igv_amount" DECIMAL(12,2) NOT NULL DEFAULT 0,
     "subtotal" DECIMAL(12,2) NOT NULL DEFAULT 0,
     "total" DECIMAL(12,2) NOT NULL DEFAULT 0,
-    CONSTRAINT "PK_document_items" PRIMARY KEY ("id"),
-    CONSTRAINT "FK_document_items_document" FOREIGN KEY ("document_id") REFERENCES "documents"("id") ON DELETE CASCADE
+
+    CONSTRAINT "PK_09473d260190ca635dbe2bc5a98" PRIMARY KEY ("id")
 );
 
--- 7. Tabla de Colas Transaccionales (PostgreSQL SKIP LOCKED)
-CREATE TABLE IF NOT EXISTS "invoice_jobs" (
+-- CreateTable
+CREATE TABLE "invoice_jobs" (
     "id" UUID NOT NULL DEFAULT uuid_generate_v4(),
     "company_id" UUID NOT NULL,
     "document_id" UUID NOT NULL,
@@ -165,13 +169,60 @@ CREATE TABLE IF NOT EXISTS "invoice_jobs" (
     "last_error" TEXT,
     "created_at" TIMESTAMPTZ(6) NOT NULL DEFAULT CURRENT_TIMESTAMP,
     "updated_at" TIMESTAMPTZ(6) NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    CONSTRAINT "PK_invoice_jobs" PRIMARY KEY ("id"),
-    CONSTRAINT "FK_invoice_jobs_company" FOREIGN KEY ("company_id") REFERENCES "companies"("id") ON DELETE CASCADE,
-    CONSTRAINT "FK_invoice_jobs_document" FOREIGN KEY ("document_id") REFERENCES "documents"("id") ON DELETE CASCADE
+
+    CONSTRAINT "PK_1912e8716c7c300d7e0e429e974" PRIMARY KEY ("id")
 );
 
--- Índices de alto rendimiento
-CREATE INDEX IF NOT EXISTS "IDX_documents_company_status" ON "documents" ("company_id", "status");
-CREATE INDEX IF NOT EXISTS "IDX_documents_company_date" ON "documents" ("company_id", "issue_date");
-CREATE INDEX IF NOT EXISTS "IDX_document_items_doc_id" ON "document_items" ("document_id");
-CREATE INDEX IF NOT EXISTS "IDX_invoice_jobs_status_run" ON "invoice_jobs" ("status", "next_run_at");
+-- CreateIndex
+CREATE UNIQUE INDEX "users_email_key" ON "users"("email");
+
+-- CreateIndex
+CREATE INDEX "IDX_users_company_id" ON "users"("company_id");
+
+-- CreateIndex
+CREATE UNIQUE INDEX "companies_ruc_key" ON "companies"("ruc");
+
+-- CreateIndex
+CREATE UNIQUE INDEX "IDX_143c7390478a2c2de3ee21bed0" ON "companies"("api_key");
+
+-- CreateIndex
+CREATE UNIQUE INDEX "IDX_bdc811820134900859ef243d6d" ON "series"("company_id", "document_type", "series");
+
+-- CreateIndex
+CREATE UNIQUE INDEX "IDX_009cb4855f6ace7dc0b3f4f53e" ON "documents"("company_id", "idempotency_key");
+
+-- CreateIndex
+CREATE UNIQUE INDEX "IDX_d1e42394011a043d2c12d82a66" ON "documents"("company_id", "document_type", "series", "number");
+
+-- CreateIndex
+CREATE INDEX "IDX_914af31366f94d9e241b25622a" ON "document_items"("document_id");
+
+-- CreateIndex
+CREATE INDEX "IDX_5b7a62f93812c5c9169420c2bd" ON "invoice_jobs"("status", "next_run_at");
+
+-- AddForeignKey
+ALTER TABLE "users" ADD CONSTRAINT "users_company_id_fkey" FOREIGN KEY ("company_id") REFERENCES "companies"("id") ON DELETE SET NULL ON UPDATE CASCADE;
+
+-- AddForeignKey
+ALTER TABLE "branches" ADD CONSTRAINT "branches_company_id_fkey" FOREIGN KEY ("company_id") REFERENCES "companies"("id") ON DELETE CASCADE ON UPDATE CASCADE;
+
+-- AddForeignKey
+ALTER TABLE "series" ADD CONSTRAINT "series_company_id_fkey" FOREIGN KEY ("company_id") REFERENCES "companies"("id") ON DELETE CASCADE ON UPDATE CASCADE;
+
+-- AddForeignKey
+ALTER TABLE "series" ADD CONSTRAINT "series_branch_id_fkey" FOREIGN KEY ("branch_id") REFERENCES "branches"("id") ON DELETE SET NULL ON UPDATE CASCADE;
+
+-- AddForeignKey
+ALTER TABLE "documents" ADD CONSTRAINT "documents_company_id_fkey" FOREIGN KEY ("company_id") REFERENCES "companies"("id") ON DELETE CASCADE ON UPDATE CASCADE;
+
+-- AddForeignKey
+ALTER TABLE "documents" ADD CONSTRAINT "documents_branch_id_fkey" FOREIGN KEY ("branch_id") REFERENCES "branches"("id") ON DELETE SET NULL ON UPDATE CASCADE;
+
+-- AddForeignKey
+ALTER TABLE "document_items" ADD CONSTRAINT "document_items_document_id_fkey" FOREIGN KEY ("document_id") REFERENCES "documents"("id") ON DELETE CASCADE ON UPDATE CASCADE;
+
+-- AddForeignKey
+ALTER TABLE "invoice_jobs" ADD CONSTRAINT "invoice_jobs_company_id_fkey" FOREIGN KEY ("company_id") REFERENCES "companies"("id") ON DELETE CASCADE ON UPDATE CASCADE;
+
+-- AddForeignKey
+ALTER TABLE "invoice_jobs" ADD CONSTRAINT "invoice_jobs_document_id_fkey" FOREIGN KEY ("document_id") REFERENCES "documents"("id") ON DELETE CASCADE ON UPDATE CASCADE;

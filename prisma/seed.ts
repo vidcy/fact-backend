@@ -1,185 +1,111 @@
 import { PrismaClient } from '@prisma/client';
-import * as fs from 'fs';
-import * as path from 'path';
+import * as crypto from 'crypto';
 
 const prisma = new PrismaClient();
 
-async function main() {
-  console.log('🚀 Iniciando proceso de Seed para CCOFACT PRO (SUNAT UBL 2.1)...');
+/**
+ * Hashea una contraseña usando scrypt con salt criptográfico de 16 bytes
+ */
+function hashPassword(password: string): string {
+  const salt = crypto.randomBytes(16).toString('hex');
+  const hash = crypto.scryptSync(password, salt, 64).toString('hex');
+  return `${salt}:${hash}`;
+}
 
-  // 1. Asegurar extensión UUID en PostgreSQL
+async function main() {
+  console.log('=============================================================');
+  console.log('🚀 CCOFACT PRO - INICIALIZACIÓN SOBERANA DE BASE DE DATOS');
+  console.log('=============================================================');
+
+  // 1. Verificar conexión a la base de datos PostgreSQL
+  try {
+    await prisma.$queryRaw`SELECT 1;`;
+    console.log('✅ Conexión establecida con la base de datos PostgreSQL.');
+  } catch (connErr: any) {
+    console.error('\n❌ ERROR DE CONEXIÓN A POSTGRESQL:');
+    console.error('   No se pudo conectar a la base de datos en la URL configurada.');
+    console.error('   Asegúrate de que el servicio de PostgreSQL esté iniciado y accesible.');
+    console.error(`   Detalle: ${connErr.message}\n`);
+    throw connErr;
+  }
+
+  // 2. Asegurar extensión UUID y tabla de usuarios en PostgreSQL
   try {
     await prisma.$executeRawUnsafe('CREATE EXTENSION IF NOT EXISTS "uuid-ossp";');
-    console.log('✅ Extensión uuid-ossp habilitada en PostgreSQL.');
+    console.log('✅ Extensión uuid-ossp verificada.');
   } catch (err: any) {
     console.warn('⚠️  Nota sobre extensión uuid-ossp:', err.message);
   }
 
-  // 2. Cargar datos de la empresa desde JSON
-  const dataPath = path.join(__dirname, 'company_data.json');
-  let companyData: any = null;
-
-  if (fs.existsSync(dataPath)) {
-    const raw = fs.readFileSync(dataPath, 'utf8');
-    companyData = JSON.parse(raw);
-    console.log('📁 Datos cargados desde prisma/company_data.json');
+  try {
+    await prisma.$executeRawUnsafe(`
+      CREATE TABLE IF NOT EXISTS users (
+        id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+        email VARCHAR(150) NOT NULL UNIQUE,
+        password_hash VARCHAR(255) NOT NULL,
+        name VARCHAR(150) NOT NULL,
+        role VARCHAR(50) NOT NULL DEFAULT 'SUPER_ADMIN',
+        company_id UUID,
+        is_active BOOLEAN NOT NULL DEFAULT true,
+        created_at TIMESTAMPTZ(6) NOT NULL DEFAULT NOW(),
+        updated_at TIMESTAMPTZ(6) NOT NULL DEFAULT NOW()
+      );
+    `);
+    // Asegurar columna company_id si la tabla existía previamente
+    await prisma.$executeRawUnsafe('ALTER TABLE users ADD COLUMN IF NOT EXISTS company_id UUID;');
+    await prisma.$executeRawUnsafe('CREATE INDEX IF NOT EXISTS "IDX_users_company_id" ON users (company_id);');
+    console.log('✅ Tabla "users" y columna "company_id" verificadas y listas.');
+  } catch (tableErr: any) {
+    console.warn('⚠️  Nota sobre verificación de tabla users:', tableErr.message);
   }
 
-  if (!companyData || !companyData.comp) {
-    throw new Error('No se encontró el archivo de datos prisma/company_data.json');
-  }
+  // 3. Parámetros del Administrador Maestro (desde .env o predeterminados)
+  const adminEmail = (process.env.ADMIN_EMAIL || 'admin@ccoplex.com').trim().toLowerCase();
+  const adminPassword = (process.env.ADMIN_PASSWORD || 'admin123').trim();
+  const adminName = process.env.ADMIN_NAME || 'Administrador Maestro Ccoplex';
 
-  const { comp, series } = companyData;
+  console.log(`👤 Provisionando Usuario Administrador Maestro: ${adminEmail}...`);
 
-  // 3. Upsert de la Empresa Emisora
-  console.log(`🏢 Provisionando empresa emisor RUC: ${comp.ruc} (${comp.razonSocial})...`);
-  const company = await prisma.company.upsert({
-    where: { ruc: comp.ruc },
+  const passwordHash = hashPassword(adminPassword);
+
+  // 4. Upsert seguro del usuario Administrador
+  const adminUser = await prisma.user.upsert({
+    where: { email: adminEmail },
     update: {
-      razonSocial: comp.razonSocial,
-      nombreComercial: comp.nombreComercial,
-      direccion: comp.direccion,
-      ubigeo: comp.ubigeo,
-      departamento: comp.departamento,
-      provincia: comp.provincia,
-      distrito: comp.distrito,
-      urbanizacion: comp.urbanizacion || '-',
-      solUser: comp.solUser,
-      solPass: comp.solPass,
-      certificatePfxBase64: comp.certificatePfxBase64,
-      certificatePassword: comp.certificatePassword,
-      certificateFilename: comp.certificateFilename,
-      certificateUrl: comp.certificateUrl,
-      certificateExpiresAt: comp.certificateExpiresAt ? new Date(comp.certificateExpiresAt) : null,
-      certificateSubject: comp.certificateSubject,
-      certificateIssuer: comp.certificateIssuer,
-      envMode: comp.envMode || 'PRODUCCION',
-      apiKey: comp.apiKey,
+      name: adminName,
+      passwordHash: passwordHash,
+      role: 'SUPER_ADMIN',
+      companyId: null,
       isActive: true,
       updatedAt: new Date(),
     },
     create: {
-      id: comp.id,
-      ruc: comp.ruc,
-      razonSocial: comp.razonSocial,
-      nombreComercial: comp.nombreComercial,
-      direccion: comp.direccion,
-      ubigeo: comp.ubigeo,
-      departamento: comp.departamento,
-      provincia: comp.provincia,
-      distrito: comp.distrito,
-      urbanizacion: comp.urbanizacion || '-',
-      solUser: comp.solUser,
-      solPass: comp.solPass,
-      certificatePfxBase64: comp.certificatePfxBase64,
-      certificatePassword: comp.certificatePassword,
-      certificateFilename: comp.certificateFilename,
-      certificateUrl: comp.certificateUrl,
-      certificateExpiresAt: comp.certificateExpiresAt ? new Date(comp.certificateExpiresAt) : null,
-      certificateSubject: comp.certificateSubject,
-      certificateIssuer: comp.certificateIssuer,
-      envMode: comp.envMode || 'PRODUCCION',
-      apiKey: comp.apiKey,
+      email: adminEmail,
+      name: adminName,
+      passwordHash: passwordHash,
+      role: 'SUPER_ADMIN',
+      companyId: null,
       isActive: true,
     },
   });
 
-  console.log(`✅ Empresa ${company.ruc} sincronizada con ID: ${company.id}`);
-
-  // 4. Provisionar Sucursal Principal (0000)
-  let defaultBranch = await prisma.branch.findFirst({
-    where: {
-      companyId: company.id,
-      code: '0000',
-    },
-  });
-
-  if (defaultBranch) {
-    defaultBranch = await prisma.branch.update({
-      where: { id: defaultBranch.id },
-      data: {
-        name: 'Sede Principal',
-        address: company.direccion,
-        ubigeo: company.ubigeo,
-        isActive: true,
-      },
-    });
-  } else {
-    defaultBranch = await prisma.branch.create({
-      data: {
-        companyId: company.id,
-        code: '0000',
-        name: 'Sede Principal',
-        address: company.direccion,
-        ubigeo: company.ubigeo,
-        isActive: true,
-      },
-    });
-  }
-  console.log(`✅ Sucursal Principal (${defaultBranch.code}) vinculada.`);
-
-  // 5. Provisionar Series Oficiales SUNAT
-  console.log('🔢 Sincronizando Series Oficiales SUNAT...');
-  const seriesToSeed = series && series.length > 0 ? series : [
-    { documentType: '01', series: 'F001', currentNumber: 0 },
-    { documentType: '03', series: 'B001', currentNumber: 18 },
-    { documentType: '07', series: 'FC01', currentNumber: 0 },
-    { documentType: '07', series: 'BC01', currentNumber: 5 },
-    { documentType: '08', series: 'FD01', currentNumber: 0 },
-    { documentType: '08', series: 'BD01', currentNumber: 0 },
-  ];
-
-  for (const s of seriesToSeed) {
-    const existing = await prisma.series.findFirst({
-      where: {
-        companyId: company.id,
-        documentType: s.documentType,
-        series: s.series,
-      },
-    });
-
-    if (existing) {
-      // Actualizar preservando o sincronizando el correlativo más alto
-      const targetNumber = Math.max(existing.currentNumber, s.currentNumber);
-      await prisma.series.update({
-        where: { id: existing.id },
-        data: {
-          currentNumber: targetNumber,
-          branchId: defaultBranch.id,
-          isActive: true,
-          updatedAt: new Date(),
-        },
-      });
-      console.log(`   📌 Serie ${s.series} (Tipo ${s.documentType}): Correlativo actual = ${targetNumber}`);
-    } else {
-      await prisma.series.create({
-        data: {
-          companyId: company.id,
-          branchId: defaultBranch.id,
-          documentType: s.documentType,
-          series: s.series,
-          currentNumber: s.currentNumber,
-          isActive: true,
-        },
-      });
-      console.log(`   ✨ Serie ${s.series} (Tipo ${s.documentType}) CREADA: Correlativo inicial = ${s.currentNumber}`);
-    }
-  }
-
   console.log('\n=============================================================');
-  console.log('🎉 PROCESO DE SEED COMPLETADO CON ÉXITO');
+  console.log('🎉 BASE DE DATOS INICIALIZADA CON ÉXITO');
   console.log('=============================================================');
-  console.log(`Emisor Fiscal:     ${company.razonSocial}`);
-  console.log(`RUC:               ${company.ruc}`);
-  console.log(`Entorno SUNAT:     ${company.envMode}`);
-  console.log(`API Key (x-api-key): ${company.apiKey}`);
-  console.log(`Certificado Nube:  ${company.certificateUrl || 'En base de datos'}`);
+  console.log(`Usuario Administrador: ${adminUser.email}`);
+  console.log(`Nombre:                ${adminUser.name}`);
+  console.log(`Rol Asignado:          ${adminUser.role}`);
+  console.log(`Estado:                ${adminUser.isActive ? 'ACTIVO' : 'INACTIVO'}`);
+  console.log('=============================================================');
+  console.log('💡 La base de datos contiene exclusivamente el usuario maestro.');
+  console.log('   Las empresas emisoras, certificados y series se configuran');
+  console.log('   directamente desde el Panel Web de Facturación.');
   console.log('=============================================================\n');
 }
 
 main()
   .catch((e) => {
-    console.error('❌ Error durante la ejecución del seed:', e);
+    console.error('❌ Error durante la ejecución del seed:', e.message || e);
     process.exit(1);
   })
   .finally(async () => {

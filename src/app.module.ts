@@ -14,6 +14,7 @@ import { DocumentsModule } from './modules/documents/documents.module';
 import { SunatCoreModule } from './modules/sunat-core/sunat-core.module';
 import { QueueModule } from './modules/queue/queue.module';
 import { AuthModule } from './modules/auth/auth.module';
+import { UsersModule } from './modules/users/users.module';
 import { CompaniesService } from './modules/companies/companies.service';
 
 /**
@@ -52,6 +53,7 @@ import { CompaniesService } from './modules/companies/companies.service';
 
     // 4. Módulos funcionales de la plataforma
     AuthModule,
+    UsersModule,
     CompaniesModule,
     SeriesModule,
     DocumentsModule,
