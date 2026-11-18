@@ -43,7 +43,7 @@ import { CompaniesService } from './modules/companies/companies.service';
       type: 'postgres',
       host: process.env.DB_HOST || 'localhost',
       port: parseInt(process.env.DB_PORT || '5432', 10),
-      username: process.env.DB_USERNAME || 'postgres',
+      username: process.env.DB_USERNAME || 'vidcy',
       password: process.env.DB_PASSWORD || 'vidcy',
       database: process.env.DB_DATABASE || 'fact',
       entities: [Company, Branch, Series, Document, DocumentItem, InvoiceJob],
@@ -64,7 +64,7 @@ import { CompaniesService } from './modules/companies/companies.service';
 export class AppModule implements OnApplicationBootstrap {
   private readonly logger = new Logger('CCOFACT-AppModule');
 
-  constructor(private companiesService: CompaniesService) {}
+  constructor(private companiesService: CompaniesService) { }
 
   /**
    * Se ejecuta inmediatamente después de que la aplicación NestJS inicializa todos los módulos.
