@@ -1,7 +1,8 @@
 import { Injectable } from '@nestjs/common';
-import { Company } from '../../../entities/company.entity';
-import { Document } from '../../../entities/document.entity';
+import { Company, Document, DocumentItem } from '@prisma/client';
 import { NumberToWordsService } from './number-to-words.service';
+
+type DocumentWithItems = Document & { items?: DocumentItem[] };
 
 /**
  * ============================================================================
@@ -28,7 +29,7 @@ export class UblBuilderService {
    * @param company Entidad de la empresa emisora con RUC, razón social, ubigeo y dirección
    * @returns Cadena de texto con el XML UBL 2.1 estructurado y validado
    */
-  public buildInvoiceXml(document: Document, company: Company): string {
+  public buildInvoiceXml(document: DocumentWithItems, company: Company): string {
     // 1. Identificar el tipo de documento para determinar el nodo raíz y schema XML
     const isCreditNote = document.document_type === '07';
     const isDebitNote = document.document_type === '08';
@@ -73,12 +74,14 @@ export class UblBuilderService {
 
     // 6. Si es Factura o Boleta, incluir tipo de comprobante y leyenda monetaria
     if (!isCreditNote && !isDebitNote) {
+      const meta = (document.metadata as any) || {};
+      const metaObs = typeof meta.observaciones === 'string' ? meta.observaciones : '';
       const hasAmazonia =
         Number(document.total_exonerada) > 0 ||
-        (document.metadata?.observaciones &&
-          (document.metadata.observaciones.includes('Amazonía') ||
-            document.metadata.observaciones.includes('AMAZONÍA') ||
-            document.metadata.observaciones.includes('27037'))) ||
+        (metaObs &&
+          (metaObs.includes('Amazonía') ||
+            metaObs.includes('AMAZONÍA') ||
+            metaObs.includes('27037'))) ||
         (company.departamento &&
           company.departamento.toLowerCase().includes('madre de dios'));
 
@@ -91,9 +94,9 @@ export class UblBuilderService {
   <cbc:Note languageLocaleID="2001"><![CDATA[BIENES TRANSFERIDOS EN LA AMAZONÍA PARA SER CONSUMIDOS EN LA MISMA - LEY N° 27037]]></cbc:Note>`;
       }
 
-      if (document.metadata?.observaciones && !document.metadata.observaciones.includes('27037')) {
+      if (metaObs && !metaObs.includes('27037')) {
         xml += `
-  <cbc:Note languageLocaleID="9999"><![CDATA[${document.metadata.observaciones}]]></cbc:Note>`;
+  <cbc:Note languageLocaleID="9999"><![CDATA[${metaObs}]]></cbc:Note>`;
       }
 
       xml += `

@@ -1,7 +1,6 @@
 import { Injectable } from '@nestjs/common';
 import * as QRCode from 'qrcode';
-import { Document } from '../../../entities/document.entity';
-import { Company } from '../../../entities/company.entity';
+import { Document, Company } from '@prisma/client';
 
 /**
  * ============================================================================

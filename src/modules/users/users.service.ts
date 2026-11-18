@@ -1,46 +1,74 @@
 import {
   Injectable,
-  ConflictException,
   NotFoundException,
   BadRequestException,
+  ConflictException,
   Logger,
 } from '@nestjs/common';
 import { PrismaService } from '../../prisma/prisma.service';
-import { AuthService } from '../auth/auth.service';
 import { CreateUserDto } from './dto/create-user.dto';
 import { UpdateUserDto } from './dto/update-user.dto';
 import { ChangePasswordDto } from './dto/change-password.dto';
+import { AuthService } from '../auth/auth.service';
 
 @Injectable()
 export class UsersService {
-  private readonly logger = new Logger('UsersService');
+  private readonly logger = new Logger('CCOFACT-UsersService');
 
-  constructor(private readonly prisma: PrismaService) { }
+  constructor(private readonly prisma: PrismaService) {}
+
+  private formatUser(u: any) {
+    if (!u) return null;
+    return {
+      id: u.id,
+      email: u.email,
+      name: u.name,
+      role: u.role,
+      company_id: u.company_id,
+      companyId: u.company_id,
+      company: u.company
+        ? {
+            id: u.company.id,
+            ruc: u.company.ruc,
+            razon_social: u.company.razon_social,
+            razonSocial: u.company.razon_social,
+          }
+        : null,
+      is_active: u.is_active,
+      isActive: u.is_active,
+      created_at: u.created_at,
+      createdAt: u.created_at,
+      updated_at: u.updated_at,
+      updatedAt: u.updated_at,
+    };
+  }
 
   /**
-   * Lista todos los usuarios registrados en el sistema con su empresa asignada (multi-tenant)
+   * Lista todos los usuarios de la plataforma con su empresa vinculada
    */
   async findAll() {
-    return this.prisma.user.findMany({
+    const users = await this.prisma.user.findMany({
       select: {
         id: true,
         email: true,
         name: true,
         role: true,
-        companyId: true,
+        company_id: true,
         company: {
           select: {
             id: true,
             ruc: true,
-            razonSocial: true,
+            razon_social: true,
           },
         },
-        isActive: true,
-        createdAt: true,
-        updatedAt: true,
+        is_active: true,
+        created_at: true,
+        updated_at: true,
       },
-      orderBy: { createdAt: 'desc' },
+      orderBy: { created_at: 'desc' },
     });
+
+    return users.map((u) => this.formatUser(u));
   }
 
   /**
@@ -54,17 +82,17 @@ export class UsersService {
         email: true,
         name: true,
         role: true,
-        companyId: true,
+        company_id: true,
         company: {
           select: {
             id: true,
             ruc: true,
-            razonSocial: true,
+            razon_social: true,
           },
         },
-        isActive: true,
-        createdAt: true,
-        updatedAt: true,
+        is_active: true,
+        created_at: true,
+        updated_at: true,
       },
     });
 
@@ -72,7 +100,7 @@ export class UsersService {
       throw new NotFoundException(`Usuario con ID ${id} no encontrado.`);
     }
 
-    return user;
+    return this.formatUser(user);
   }
 
   /**
@@ -104,32 +132,33 @@ export class UsersService {
     const newUser = await this.prisma.user.create({
       data: {
         email: emailNormalized,
-        passwordHash,
+        password_hash: passwordHash,
         name: dto.name.trim(),
         role: dto.role || 'ADMIN',
-        companyId: dto.companyId || null,
-        isActive: true,
+        company_id: dto.companyId || null,
+        is_active: true,
       },
       select: {
         id: true,
         email: true,
         name: true,
         role: true,
-        companyId: true,
+        company_id: true,
         company: {
           select: {
             id: true,
             ruc: true,
-            razonSocial: true,
+            razon_social: true,
           },
         },
-        isActive: true,
-        createdAt: true,
+        is_active: true,
+        created_at: true,
+        updated_at: true,
       },
     });
 
     this.logger.log(`Usuario creado exitosamente: ${newUser.email} (${newUser.role})`);
-    return newUser;
+    return this.formatUser(newUser);
   }
 
   /**
@@ -158,10 +187,10 @@ export class UsersService {
 
     if (dto.name !== undefined) dataToUpdate.name = dto.name.trim();
     if (dto.role !== undefined) dataToUpdate.role = dto.role;
-    if (dto.companyId !== undefined) dataToUpdate.companyId = dto.companyId || null;
-    if (dto.isActive !== undefined) dataToUpdate.isActive = dto.isActive;
+    if (dto.companyId !== undefined) dataToUpdate.company_id = dto.companyId || null;
+    if (dto.isActive !== undefined) dataToUpdate.is_active = dto.isActive;
 
-    return this.prisma.user.update({
+    const updatedUser = await this.prisma.user.update({
       where: { id },
       data: dataToUpdate,
       select: {
@@ -169,18 +198,21 @@ export class UsersService {
         email: true,
         name: true,
         role: true,
-        companyId: true,
+        company_id: true,
         company: {
           select: {
             id: true,
             ruc: true,
-            razonSocial: true,
+            razon_social: true,
           },
         },
-        isActive: true,
-        updatedAt: true,
+        is_active: true,
+        created_at: true,
+        updated_at: true,
       },
     });
+
+    return this.formatUser(updatedUser);
   }
 
   /**
@@ -196,7 +228,7 @@ export class UsersService {
 
     await this.prisma.user.update({
       where: { id },
-      data: { passwordHash },
+      data: { password_hash: passwordHash },
     });
 
     this.logger.log(`Contraseña actualizada con éxito para el usuario ${user.email}`);

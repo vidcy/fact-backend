@@ -1,0 +1,19 @@
+Eso pasó porque la migración anterior que falló (20261118215626_init) quedó registrada como "fallida" dentro de una tabla interna de PostgreSQL llamada _prisma_migrations, aunque ya hayas borrado la carpeta en tu computadora.
+Para destrabarlo por completo, limpia esa tabla interna de PostgreSQL y vuelve a crear la extensión antes de lanzar la migración.
+
+Ejecuta estos comandos en orden exacto
+
+1. Limpia la tabla interna de migraciones en PostgreSQL. Esto borra el registro de la migración fallida sin tocar la extensión que acabas de instalar:powershell
+echo 'DROP TABLE IF EXISTS "_prisma_migrations";' | npx prisma db execute --stdin --schema prisma/schema.prisma
+Usa el código con precaución.
+2. Asegúrate de que la extensión uuid-ossp esté activa:powershell
+echo 'CREATE EXTENSION IF NOT EXISTS "uuid-ossp";' | npx prisma db execute --stdin --schema prisma/schema.prisma
+Usa el código con precaución.
+3. Crea y aplica tu migración inicial. Ahora no habrá registros fallidos bloqueando el proceso:powershell
+npx prisma migrate dev --name init
+Usa el código con precaución.
+4. Genera el cliente, ejecuta el seed e inicia tu aplicación:powershell
+npx prisma generate
+npx prisma db seed
+npm run start:dev
+Usa el código con precaución.

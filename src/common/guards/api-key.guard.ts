@@ -4,12 +4,11 @@ import {
   ExecutionContext,
   UnauthorizedException,
 } from '@nestjs/common';
-import { DataSource } from 'typeorm';
-import { Company } from '../../entities/company.entity';
+import { PrismaService } from '../../prisma/prisma.service';
 
 @Injectable()
 export class ApiKeyGuard implements CanActivate {
-  constructor(private dataSource: DataSource) {}
+  constructor(private readonly prisma: PrismaService) {}
 
   async canActivate(context: ExecutionContext): Promise<boolean> {
     const request = context.switchToHttp().getRequest();
@@ -38,9 +37,11 @@ export class ApiKeyGuard implements CanActivate {
       );
     }
 
-    const companyRepo = this.dataSource.getRepository(Company);
-    const company = await companyRepo.findOne({
-      where: { api_key: apiKey, is_active: true },
+    const company = await this.prisma.company.findFirst({
+      where: {
+        api_key: String(apiKey),
+        is_active: true,
+      },
     });
 
     if (!company) {

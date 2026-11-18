@@ -1,14 +1,15 @@
 import { Injectable } from '@nestjs/common';
-import { Document } from '../../../entities/document.entity';
-import { Company } from '../../../entities/company.entity';
+import { Document, Company, DocumentItem } from '@prisma/client';
 import { NumberToWordsService } from './number-to-words.service';
+
+type DocumentWithItems = Document & { items?: DocumentItem[] };
 
 @Injectable()
 export class PdfBuilderService {
   constructor(private numberToWords: NumberToWordsService) {}
 
   public generateHtml(
-    document: Document,
+    document: DocumentWithItems,
     company: Company,
     qrDataUrl: string,
     format: 'A4' | 'TICKET' = 'A4',
@@ -31,16 +32,16 @@ export class PdfBuilderService {
     return this.renderA4(document, company, qrDataUrl, docTitle, words);
   }
 
-  public buildA4Html(document: Document, company: Company, qrDataUrl: string): string {
+  public buildA4Html(document: DocumentWithItems, company: Company, qrDataUrl: string): string {
     return this.generateHtml(document, company, qrDataUrl, 'A4');
   }
 
-  public buildTicketHtml(document: Document, company: Company, qrDataUrl: string): string {
+  public buildTicketHtml(document: DocumentWithItems, company: Company, qrDataUrl: string): string {
     return this.generateHtml(document, company, qrDataUrl, 'TICKET');
   }
 
   private renderA4(
-    doc: Document,
+    doc: DocumentWithItems,
     company: Company,
     qrDataUrl: string,
     docTitle: string,
@@ -142,7 +143,7 @@ export class PdfBuilderService {
         </tr>
       </thead>
       <tbody>
-        ${doc.items.map((it, idx) => `
+        ${(doc.items || []).map((it, idx) => `
           <tr>
             <td class="text-center" style="color: #94a3b8;">${idx + 1}</td>
             <td style="font-family: monospace;">${it.code || '-'}</td>
@@ -192,7 +193,7 @@ export class PdfBuilderService {
   }
 
   private renderTicket(
-    doc: Document,
+    doc: DocumentWithItems,
     company: Company,
     qrDataUrl: string,
     docTitle: string,
@@ -238,7 +239,7 @@ export class PdfBuilderService {
       </tr>
     </thead>
     <tbody>
-      ${doc.items.map(it => `
+      ${(doc.items || []).map(it => `
         <tr>
           <td colspan="3"><b>${it.description}</b></td>
         </tr>

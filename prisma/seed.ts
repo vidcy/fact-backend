@@ -73,19 +73,19 @@ async function main() {
     where: { email: adminEmail },
     update: {
       name: adminName,
-      passwordHash: passwordHash,
+      password_hash: passwordHash,
       role: 'SUPER_ADMIN',
-      companyId: null,
-      isActive: true,
-      updatedAt: new Date(),
+      company_id: null,
+      is_active: true,
+      updated_at: new Date(),
     },
     create: {
       email: adminEmail,
       name: adminName,
-      passwordHash: passwordHash,
+      password_hash: passwordHash,
       role: 'SUPER_ADMIN',
-      companyId: null,
-      isActive: true,
+      company_id: null,
+      is_active: true,
     },
   });
 
@@ -95,7 +95,7 @@ async function main() {
   console.log(`Usuario Administrador: ${adminUser.email}`);
   console.log(`Nombre:                ${adminUser.name}`);
   console.log(`Rol Asignado:          ${adminUser.role}`);
-  console.log(`Estado:                ${adminUser.isActive ? 'ACTIVO' : 'INACTIVO'}`);
+  console.log(`Estado:                ${adminUser.is_active ? 'ACTIVO' : 'INACTIVO'}`);
   console.log('=============================================================');
   console.log('💡 La base de datos contiene exclusivamente el usuario maestro.');
   console.log('   Las empresas emisoras, certificados y series se configuran');

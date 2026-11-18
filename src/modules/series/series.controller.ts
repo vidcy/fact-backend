@@ -3,7 +3,7 @@ import { ApiTags, ApiOperation, ApiSecurity } from '@nestjs/swagger';
 import { SeriesService } from './series.service';
 import { ApiKeyGuard } from '../../common/guards/api-key.guard';
 import { CurrentCompany } from '../../common/decorators/current-company.decorator';
-import { Company } from '../../entities/company.entity';
+import type { Company } from '@prisma/client';
 
 @ApiTags('Series y Correlativos')
 @ApiSecurity('api-key')

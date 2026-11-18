@@ -2,8 +2,7 @@ import { Injectable, Logger } from '@nestjs/common';
 import axios from 'axios';
 import AdmZip from 'adm-zip';
 import { DOMParser } from '@xmldom/xmldom';
-import { Company } from '../../../entities/company.entity';
-import { Document } from '../../../entities/document.entity';
+import { Company, Document } from '@prisma/client';
 
 export interface SunatResponse {
   success: boolean;

@@ -1,9 +1,9 @@
 // ============================================================================
 // CCOFACT PRO - CORPORACIÓN CCOPLEX S.A.C.
-// ESQUEMA OFICIAL DE BASE DE DATOS CON PRISMA ORM (MULTI-EMPRESAS)
+// ESQUEMA OFICIAL DE BASE DE DATOS EXCLUSIVO CON PRISMA ORM (100% SOBERANO)
 // ============================================================================
 // Motor Soberano de Facturación Electrónica SUNAT UBL 2.1
-// Base de Datos: PostgreSQL 18 (localhost:5432/fact)
+// Base de Datos: PostgreSQL 18
 // Control de Concurrencia: Bloqueo Pesimista (SELECT ... FOR UPDATE) y Colas SKIP LOCKED
 // ============================================================================
 
@@ -20,63 +20,61 @@ datasource db {
 // MODELO: USER (USUARIOS Y ACCESOS AL FACTURADOR - MULTI-TENANT RBAC)
 // ----------------------------------------------------------------------------
 model User {
-  id                    String        @id(map: "PK_users_id") @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
-  email                 String        @unique @db.VarChar(150)
-  passwordHash          String        @map("password_hash") @db.VarChar(255)
-  name                  String        @db.VarChar(150)
-  role                  String        @default("ADMIN") @db.VarChar(50)
-  companyId             String?       @map("company_id") @db.Uuid
-  isActive              Boolean       @default(true) @map("is_active")
-  createdAt             DateTime      @default(now()) @map("created_at") @db.Timestamptz(6)
-  updatedAt             DateTime      @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
+  id             String    @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
+  email          String    @unique @db.VarChar(150)
+  password_hash  String    @db.VarChar(255)
+  name           String    @db.VarChar(150)
+  role           String    @default("ADMIN") @db.VarChar(50)
+  company_id     String?   @db.Uuid
+  is_active      Boolean   @default(true)
+  created_at     DateTime  @default(now()) @db.Timestamptz(6)
+  updated_at     DateTime  @default(now()) @updatedAt @db.Timestamptz(6)
 
-  company               Company?      @relation(fields: [companyId], references: [id], onDelete: SetNull)
+  company        Company?  @relation(fields: [company_id], references: [id], onDelete: SetNull)
 
-  @@index([companyId], map: "IDX_users_company_id")
+  @@index([company_id], map: "IDX_users_company_id")
   @@map("users")
 }
 
 // ----------------------------------------------------------------------------
 // MODELO: COMPANY (EMPRESAS EMISORAS - MULTI-TENANT ISOLATION)
 // ----------------------------------------------------------------------------
-// Representa a cada empresa emisora registrada en CCOFACT PRO.
-// Proporciona aislamiento absoluto de credenciales, certificados y correlativos.
 model Company {
-  id                    String        @id(map: "PK_d4c3e047360e4f2042211910cf3") @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
-  ruc                   String        @unique @db.VarChar(11)
-  razonSocial           String        @map("razon_social") @db.VarChar(255)
-  nombreComercial       String?       @map("nombre_comercial") @db.VarChar(255)
-  direccion             String        @db.VarChar(255)
-  ubigeo                String        @default("150101") @db.VarChar(6)
-  departamento          String        @default("LIMA") @db.VarChar(100)
-  provincia             String        @default("LIMA") @db.VarChar(100)
-  distrito              String        @default("LIMA") @db.VarChar(100)
-  urbanizacion          String?       @default("-") @db.VarChar(100)
-  email                 String?       @db.VarChar(150)
-  telefono              String?       @db.VarChar(50)
-  logoUrl               String?       @map("logo_url") @db.Text
-  solUser               String        @default("MODDATOS") @map("sol_user") @db.VarChar(100)
-  solPass               String        @default("moddatos") @map("sol_pass") @db.VarChar(100)
-  certificatePfxBase64  String?       @map("certificate_pfx_base64") @db.Text
-  certificatePassword   String?       @map("certificate_password") @db.VarChar(255)
-  certificateFilename   String?       @map("certificate_filename") @db.VarChar(500)
-  certificateUrl        String?       @map("certificate_url") @db.VarChar(1000)
-  certificateExpiresAt  DateTime?     @map("certificate_expires_at") @db.Timestamptz(6)
-  certificateSubject    String?       @map("certificate_subject") @db.Text
-  certificateIssuer     String?       @map("certificate_issuer") @db.Text
-  envMode               String        @default("BETA") @map("env_mode") @db.VarChar(20)
-  apiKey                String        @unique(map: "IDX_143c7390478a2c2de3ee21bed0") @map("api_key") @db.VarChar(128)
-  webhookUrl            String?       @map("webhook_url") @db.VarChar(500)
-  isActive              Boolean       @default(true) @map("is_active")
-  createdAt             DateTime      @default(now()) @map("created_at") @db.Timestamptz(6)
-  updatedAt             DateTime      @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
+  id                      String        @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
+  ruc                     String        @unique @db.VarChar(11)
+  razon_social            String        @db.VarChar(255)
+  nombre_comercial        String?       @db.VarChar(255)
+  direccion               String        @db.VarChar(255)
+  ubigeo                  String        @default("150101") @db.VarChar(6)
+  departamento            String        @default("LIMA") @db.VarChar(100)
+  provincia               String        @default("LIMA") @db.VarChar(100)
+  distrito                String        @default("LIMA") @db.VarChar(100)
+  urbanizacion            String?       @default("-") @db.VarChar(100)
+  email                   String?       @db.VarChar(150)
+  telefono                String?       @db.VarChar(50)
+  logo_url                String?       @db.Text
+  sol_user                String        @default("MODDATOS") @db.VarChar(100)
+  sol_pass                String        @default("moddatos") @db.VarChar(100)
+  certificate_pfx_base64  String?       @db.Text
+  certificate_password    String?       @db.VarChar(255)
+  certificate_filename    String?       @db.VarChar(500)
+  certificate_url         String?       @db.VarChar(1000)
+  certificate_expires_at  DateTime?     @db.Timestamptz(6)
+  certificate_subject     String?       @db.Text
+  certificate_issuer      String?       @db.Text
+  env_mode                String        @default("BETA") @db.VarChar(20)
+  api_key                 String        @unique(map: "IDX_143c7390478a2c2de3ee21bed0") @db.VarChar(128)
+  webhook_url             String?       @db.VarChar(500)
+  is_active               Boolean       @default(true)
+  created_at              DateTime      @default(now()) @db.Timestamptz(6)
+  updated_at              DateTime      @default(now()) @updatedAt @db.Timestamptz(6)
 
   // Relaciones Multi-Tenant
-  branches              Branch[]
-  seriesList            Series[]
-  documents             Document[]
-  jobs                  InvoiceJob[]
-  users                 User[]
+  branches                Branch[]
+  series_list             Series[]
+  documents               Document[]
+  jobs                    InvoiceJob[]
+  users                   User[]
 
   @@map("companies")
 }
@@ -85,17 +83,17 @@ model Company {
 // MODELO: BRANCH (ESTABLECIMIENTOS ANEXOS / SUCURSALES SUNAT)
 // ----------------------------------------------------------------------------
 model Branch {
-  id                    String        @id(map: "PK_7f37d3b42defea97f1df0d19535") @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
-  companyId             String        @map("company_id") @db.Uuid
+  id                    String        @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
+  company_id            String        @db.Uuid
   code                  String        @default("0000") @db.VarChar(10)
   name                  String        @db.VarChar(150)
   address               String        @db.VarChar(255)
   ubigeo                String        @default("150101") @db.VarChar(6)
-  isActive              Boolean       @default(true) @map("is_active")
-  createdAt             DateTime      @default(now()) @map("created_at") @db.Timestamptz(6)
+  is_active             Boolean       @default(true)
+  created_at            DateTime      @default(now()) @db.Timestamptz(6)
 
-  company               Company       @relation(fields: [companyId], references: [id], onDelete: Cascade)
-  seriesList            Series[]
+  company               Company       @relation(fields: [company_id], references: [id], onDelete: Cascade)
+  series_list           Series[]
   documents             Document[]
 
   @@map("branches")
@@ -105,20 +103,20 @@ model Branch {
 // MODELO: SERIES (CONTROL ATÓMICO DE CORRELATIVOS FISCALES)
 // ----------------------------------------------------------------------------
 model Series {
-  id                    String        @id(map: "PK_e725676647382eb54540d7128ba") @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
-  companyId             String        @map("company_id") @db.Uuid
-  branchId              String?       @map("branch_id") @db.Uuid
-  documentType          String        @map("document_type") @db.VarChar(2)
+  id                    String        @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
+  company_id            String        @db.Uuid
+  branch_id             String?       @db.Uuid
+  document_type         String        @db.VarChar(2)
   series                String        @db.VarChar(4)
-  currentNumber         Int           @default(0) @map("current_number")
-  isActive              Boolean       @default(true) @map("is_active")
-  createdAt             DateTime      @default(now()) @map("created_at") @db.Timestamptz(6)
-  updatedAt             DateTime      @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
+  current_number        Int           @default(0)
+  is_active             Boolean       @default(true)
+  created_at            DateTime      @default(now()) @db.Timestamptz(6)
+  updated_at            DateTime      @default(now()) @updatedAt @db.Timestamptz(6)
 
-  company               Company       @relation(fields: [companyId], references: [id], onDelete: Cascade)
-  branch                Branch?       @relation(fields: [branchId], references: [id], onDelete: SetNull)
+  company               Company       @relation(fields: [company_id], references: [id], onDelete: Cascade)
+  branch                Branch?       @relation(fields: [branch_id], references: [id], onDelete: SetNull)
 
-  @@unique([companyId, documentType, series], map: "IDX_bdc811820134900859ef243d6d")
+  @@unique([company_id, document_type, series], map: "IDX_bdc811820134900859ef243d6d")
   @@map("series")
 }
 
@@ -126,65 +124,65 @@ model Series {
 // MODELO: DOCUMENT (COMPROBANTES DE PAGO ELECTRÓNICOS - CPE)
 // ----------------------------------------------------------------------------
 model Document {
-  id                    String        @id(map: "PK_ac51aa5181ee2036f5ca482857c") @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
-  companyId             String        @map("company_id") @db.Uuid
-  branchId              String?       @map("branch_id") @db.Uuid
-  idempotencyKey        String?       @map("idempotency_key") @db.VarChar(100)
-  documentType          String        @map("document_type") @db.VarChar(2)
-  series                String        @db.VarChar(4)
+  id                    String          @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
+  company_id            String          @db.Uuid
+  branch_id             String?         @db.Uuid
+  idempotency_key       String?         @db.VarChar(100)
+  document_type         String          @db.VarChar(2)
+  series                String          @db.VarChar(4)
   number                Int
-  fullNumber            String        @map("full_number") @db.VarChar(20)
-  issueDate             String        @map("issue_date") @db.VarChar(10)
-  issueTime             String        @map("issue_time") @db.VarChar(8)
-  dueDate               String?       @map("due_date") @db.VarChar(10)
-  currency              String        @default("PEN") @db.VarChar(3)
-  operationType         String        @default("0101") @map("operation_type") @db.VarChar(4)
-  paymentType           String        @default("Contado") @map("payment_type") @db.VarChar(20)
-  paymentTerms          Json?         @map("payment_terms")
-  clientDocType         String        @map("client_doc_type") @db.VarChar(1)
-  clientDocNumber       String        @map("client_doc_number") @db.VarChar(15)
-  clientName            String        @map("client_name") @db.VarChar(255)
-  clientAddress         String?       @map("client_address") @db.VarChar(255)
-  clientEmail           String?       @map("client_email") @db.VarChar(150)
-  totalGravada          Decimal       @default(0) @map("total_gravada") @db.Decimal(12, 2)
-  totalExonerada        Decimal       @default(0) @map("total_exonerada") @db.Decimal(12, 2)
-  totalInafecta         Decimal       @default(0) @map("total_inafecta") @db.Decimal(12, 2)
-  totalGratuita         Decimal       @default(0) @map("total_gratuita") @db.Decimal(12, 2)
-  totalIgv              Decimal       @default(0) @map("total_igv") @db.Decimal(12, 2)
-  totalIsc              Decimal       @default(0) @map("total_isc") @db.Decimal(12, 2)
-  totalIcbper           Decimal       @default(0) @map("total_icbper") @db.Decimal(12, 2)
-  totalDescuentos       Decimal       @default(0) @map("total_descuentos") @db.Decimal(12, 2)
-  totalCargos           Decimal       @default(0) @map("total_cargos") @db.Decimal(12, 2)
-  subtotal              Decimal       @default(0) @db.Decimal(12, 2)
-  totalAmount           Decimal       @default(0) @map("total_amount") @db.Decimal(12, 2)
-  refDocumentType       String?       @map("ref_document_type") @db.VarChar(2)
-  refSeries             String?       @map("ref_series") @db.VarChar(4)
-  refNumber             Int?          @map("ref_number")
-  refReasonCode         String?       @map("ref_reason_code") @db.VarChar(2)
-  refReasonDesc         String?       @map("ref_reason_desc") @db.VarChar(255)
-  xmlDigestValue        String?       @map("xml_digest_value") @db.VarChar(64)
-  xmlSignatureValue     String?       @map("xml_signature_value")
-  qrData                String?       @map("qr_data")
-  xmlContent            String?       @map("xml_content")
-  cdrXml                String?       @map("cdr_xml")
-  cdrZipBase64          String?       @map("cdr_zip_base64")
-  status                String        @default("DRAFT") @db.VarChar(25)
-  sunatResponseCode     String?       @map("sunat_response_code") @db.VarChar(20)
-  sunatDescription      String?       @map("sunat_description")
-  sunatNotes            Json?         @map("sunat_notes")
-  sunatSentAt           DateTime?     @map("sunat_sent_at") @db.Timestamptz(6)
-  sunatResponseAt       DateTime?     @map("sunat_response_at") @db.Timestamptz(6)
+  full_number           String          @db.VarChar(20)
+  issue_date            String          @db.VarChar(10)
+  issue_time            String          @db.VarChar(8)
+  due_date              String?         @db.VarChar(10)
+  currency              String          @default("PEN") @db.VarChar(3)
+  operation_type        String          @default("0101") @db.VarChar(4)
+  payment_type          String          @default("Contado") @db.VarChar(20)
+  payment_terms         Json?
+  client_doc_type       String          @db.VarChar(1)
+  client_doc_number     String          @db.VarChar(15)
+  client_name           String          @db.VarChar(255)
+  client_address        String?         @db.VarChar(255)
+  client_email          String?         @db.VarChar(150)
+  total_gravada         Decimal         @default(0) @db.Decimal(12, 2)
+  total_exonerada       Decimal         @default(0) @db.Decimal(12, 2)
+  total_inafecta        Decimal         @default(0) @db.Decimal(12, 2)
+  total_gratuita        Decimal         @default(0) @db.Decimal(12, 2)
+  total_igv             Decimal         @default(0) @db.Decimal(12, 2)
+  total_isc             Decimal         @default(0) @db.Decimal(12, 2)
+  total_icbper          Decimal         @default(0) @db.Decimal(12, 2)
+  total_descuentos      Decimal         @default(0) @db.Decimal(12, 2)
+  total_cargos          Decimal         @default(0) @db.Decimal(12, 2)
+  subtotal              Decimal         @default(0) @db.Decimal(12, 2)
+  total_amount          Decimal         @default(0) @db.Decimal(12, 2)
+  ref_document_type     String?         @db.VarChar(2)
+  ref_series            String?         @db.VarChar(4)
+  ref_number            Int?
+  ref_reason_code       String?         @db.VarChar(2)
+  ref_reason_desc       String?         @db.VarChar(255)
+  xml_digest_value      String?         @db.VarChar(64)
+  xml_signature_value   String?
+  qr_data               String?
+  xml_content           String?
+  cdr_xml               String?
+  cdr_zip_base64        String?
+  status                String          @default("DRAFT") @db.VarChar(25)
+  sunat_response_code   String?         @db.VarChar(20)
+  sunat_description     String?
+  sunat_notes           Json?
+  sunat_sent_at         DateTime?       @db.Timestamptz(6)
+  sunat_response_at     DateTime?       @db.Timestamptz(6)
   metadata              Json?
-  createdAt             DateTime      @default(now()) @map("created_at") @db.Timestamptz(6)
-  updatedAt             DateTime      @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
+  created_at            DateTime        @default(now()) @db.Timestamptz(6)
+  updated_at            DateTime        @default(now()) @updatedAt @db.Timestamptz(6)
 
-  company               Company       @relation(fields: [companyId], references: [id], onDelete: Cascade)
-  branch                Branch?       @relation(fields: [branchId], references: [id], onDelete: SetNull)
+  company               Company         @relation(fields: [company_id], references: [id], onDelete: Cascade)
+  branch                Branch?         @relation(fields: [branch_id], references: [id], onDelete: SetNull)
   items                 DocumentItem[]
   jobs                  InvoiceJob[]
 
-  @@unique([companyId, idempotencyKey], map: "IDX_009cb4855f6ace7dc0b3f4f53e")
-  @@unique([companyId, documentType, series, number], map: "IDX_d1e42394011a043d2c12d82a66")
+  @@unique([company_id, idempotency_key], map: "IDX_009cb4855f6ace7dc0b3f4f53e")
+  @@unique([company_id, document_type, series, number], map: "IDX_d1e42394011a043d2c12d82a66")
   @@map("documents")
 }
 
@@ -192,24 +190,24 @@ model Document {
 // MODELO: DOCUMENT_ITEM (LÍNEAS DE DETALLE DE PRODUCTOS O SERVICIOS)
 // ----------------------------------------------------------------------------
 model DocumentItem {
-  id                    String        @id(map: "PK_09473d260190ca635dbe2bc5a98") @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
-  documentId            String        @map("document_id") @db.Uuid
-  itemOrder             Int           @map("item_order")
+  id                    String        @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
+  document_id           String        @db.Uuid
+  item_order            Int
   code                  String?       @db.VarChar(50)
   description           String        @db.VarChar(500)
-  unitMeasure           String        @default("NIU") @map("unit_measure") @db.VarChar(5)
+  unit_measure          String        @default("NIU") @db.VarChar(5)
   quantity              Decimal       @db.Decimal(12, 4)
-  unitValue             Decimal       @map("unit_value") @db.Decimal(12, 4)
-  unitPrice             Decimal       @map("unit_price") @db.Decimal(12, 4)
-  igvAffectationType    String        @default("10") @map("igv_affectation_type") @db.VarChar(2)
-  igvPercentage         Decimal       @default(18) @map("igv_percentage") @db.Decimal(5, 2)
-  igvAmount             Decimal       @default(0) @map("igv_amount") @db.Decimal(12, 2)
+  unit_value            Decimal       @db.Decimal(12, 4)
+  unit_price            Decimal       @db.Decimal(12, 4)
+  igv_affectation_type  String        @default("10") @db.VarChar(2)
+  igv_percentage        Decimal       @default(18) @db.Decimal(5, 2)
+  igv_amount            Decimal       @default(0) @db.Decimal(12, 2)
   subtotal              Decimal       @default(0) @db.Decimal(12, 2)
   total                 Decimal       @default(0) @db.Decimal(12, 2)
 
-  document              Document      @relation(fields: [documentId], references: [id], onDelete: Cascade)
+  document              Document      @relation(fields: [document_id], references: [id], onDelete: Cascade)
 
-  @@index([documentId], map: "IDX_914af31366f94d9e241b25622a")
+  @@index([document_id], map: "IDX_914af31366f94d9e241b25622a")
   @@map("document_items")
 }
 
@@ -217,24 +215,24 @@ model DocumentItem {
 // MODELO: INVOICE_JOB (COLAS TRANSACCIONALES CON SKIP LOCKED)
 // ----------------------------------------------------------------------------
 model InvoiceJob {
-  id                    String        @id(map: "PK_1912e8716c7c300d7e0e429e974") @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
-  companyId             String        @map("company_id") @db.Uuid
-  documentId            String        @map("document_id") @db.Uuid
-  jobType               String        @default("SEND_BILL") @map("job_type") @db.VarChar(30)
+  id                    String        @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
+  company_id            String        @db.Uuid
+  document_id           String        @db.Uuid
+  job_type              String        @default("SEND_BILL") @db.VarChar(30)
   status                String        @default("PENDING") @db.VarChar(20)
   payload               Json?
   attempts              Int           @default(0)
-  maxAttempts           Int           @default(5) @map("max_attempts")
-  nextRunAt             DateTime      @default(now()) @map("next_run_at") @db.Timestamptz(6)
-  lockedAt              DateTime?     @map("locked_at") @db.Timestamptz(6)
-  lockedBy              String?       @map("locked_by") @db.VarChar(100)
-  lastError             String?       @map("last_error")
-  createdAt             DateTime      @default(now()) @map("created_at") @db.Timestamptz(6)
-  updatedAt             DateTime      @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
+  max_attempts          Int           @default(5)
+  next_run_at           DateTime      @default(now()) @db.Timestamptz(6)
+  locked_at             DateTime?     @db.Timestamptz(6)
+  locked_by             String?       @db.VarChar(100)
+  last_error            String?
+  created_at            DateTime      @default(now()) @db.Timestamptz(6)
+  updated_at            DateTime      @default(now()) @updatedAt @db.Timestamptz(6)
 
-  company               Company       @relation(fields: [companyId], references: [id], onDelete: Cascade)
-  document              Document      @relation(fields: [documentId], references: [id], onDelete: Cascade)
+  company               Company       @relation(fields: [company_id], references: [id], onDelete: Cascade)
+  document              Document      @relation(fields: [document_id], references: [id], onDelete: Cascade)
 
-  @@index([status, nextRunAt], map: "IDX_5b7a62f93812c5c9169420c2bd")
+  @@index([status, next_run_at], map: "IDX_5b7a62f93812c5c9169420c2bd")
   @@map("invoice_jobs")
 }

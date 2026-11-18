@@ -87,16 +87,16 @@ export class AuthService {
     let userCompanyId: string | null = null;
 
     if (dbUser) {
-      if (!dbUser.isActive) {
+      if (!dbUser.is_active) {
         throw new UnauthorizedException('El usuario administrador se encuentra inactivo.');
       }
-      isValid = this.verifyPassword(cleanPassword, dbUser.passwordHash);
+      isValid = this.verifyPassword(cleanPassword, dbUser.password_hash);
       if (isValid) {
         userId = dbUser.id;
         userName = dbUser.name;
         userEmail = dbUser.email;
         userRole = dbUser.role;
-        userCompanyId = dbUser.companyId || null;
+        userCompanyId = dbUser.company_id || null;
       }
     } else {
       // Respaldo de seguridad con variables de entorno .env si la tabla users aún no se ha inicializado

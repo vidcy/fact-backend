@@ -22,7 +22,7 @@ import { CcofactDocumentDto } from './dto/ccofact-document.dto';
 import { NubefactPayloadDto } from './dto/nubefact-payload.dto';
 import { ApiKeyGuard } from '../../common/guards/api-key.guard';
 import { CurrentCompany } from '../../common/decorators/current-company.decorator';
-import { Company } from '../../entities/company.entity';
+import type { Company } from '@prisma/client';
 import { ConsultasService } from '../sunat-core/services/consultas.service';
 
 /**
