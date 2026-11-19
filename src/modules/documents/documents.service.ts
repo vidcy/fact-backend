@@ -9,7 +9,6 @@ import { Company, Document, DocumentItem } from '@prisma/client';
 import { DocumentStatus, JobType, JobStatus } from '../../common/constants/system.enums';
 import { CreateDocumentDto } from './dto/create-document.dto';
 import { CcofactDocumentDto } from './dto/ccofact-document.dto';
-import { NubefactPayloadDto } from './dto/nubefact-payload.dto';
 import { SeriesService } from '../series/series.service';
 import { UblBuilderService } from '../sunat-core/services/ubl-builder.service';
 import { XmlSignerService } from '../sunat-core/services/xml-signer.service';
@@ -175,77 +174,7 @@ export class DocumentsService {
     };
   }
 
-  /**
-   * ADAPTADOR COMPATIBLE CON MIGRACIÓN DE SISTEMAS EXISTENTES (NUBEFACT SPEC)
-   */
-  public async processNubefact(company: Company, dto: NubefactPayloadDto): Promise<any> {
-    const typeMap: Record<string, string> = {
-      '1': '01',
-      '2': '03',
-      '3': '07',
-      '4': '08',
-      '01': '01',
-      '03': '03',
-      '07': '07',
-      '08': '08',
-    };
-    const mappedType = typeMap[String(dto.tipo_de_comprobante)] || '01';
 
-    const items = dto.items.map((it) => ({
-      code: it.codigo || '',
-      description: it.descripcion,
-      unit_measure: it.unidad_de_medida || 'NIU',
-      quantity: Number(it.cantidad),
-      unit_price: Number(it.precio_unitario),
-      unit_value: it.valor_unitario ? Number(it.valor_unitario) : undefined,
-      igv_affectation_type: it.tipo_de_igv === 2 ? '20' : it.tipo_de_igv === 3 ? '30' : '10',
-    }));
-
-    const createDto: CreateDocumentDto = {
-      idempotency_key: dto.idempotency_key,
-      document_type: mappedType,
-      series: dto.serie.toUpperCase(),
-      currency: String(dto.moneda) === '2' ? 'USD' : 'PEN',
-      payment_type: dto.forma_de_pago || 'Contado',
-      client_doc_type: String(dto.cliente_tipo_de_documento),
-      client_doc_number: dto.cliente_numero_de_documento,
-      client_name: dto.cliente_denominacion,
-      client_address: dto.cliente_direccion,
-      client_email: dto.cliente_email,
-      ref_document_type: dto.documento_que_se_modifica_tipo ? typeMap[String(dto.documento_que_se_modifica_tipo)] : undefined,
-      ref_series: dto.documento_que_se_modifica_serie ? dto.documento_que_se_modifica_serie.toUpperCase() : undefined,
-      ref_number: dto.documento_que_se_modifica_numero,
-      ref_reason_code: dto.tipo_de_nota_de_credito
-        ? String(dto.tipo_de_nota_de_credito).padStart(2, '0')
-        : dto.tipo_de_nota_de_debito
-          ? String(dto.tipo_de_nota_de_debito).padStart(2, '0')
-          : undefined,
-      ref_reason_desc: dto.motivo || dto.observaciones,
-      items,
-      send_now: dto.enviar_automaticamente_a_la_sunat !== false,
-    };
-
-    const doc = await this.createDocument(company, createDto);
-
-    const baseUrl = `${process.env.APP_URL || `http://localhost:${process.env.PORT || 4001}`}/api/v1/documents/${doc.id}`;
-    return {
-      tipo_de_comprobante: Number(dto.tipo_de_comprobante),
-      serie: doc.series,
-      numero: doc.number,
-      enlace: `${baseUrl}/html`,
-      enlace_del_pdf: `${baseUrl}/html?format=A4`,
-      enlace_del_ticket: `${baseUrl}/html?format=TICKET`,
-      enlace_del_xml: `${baseUrl}/xml`,
-      enlace_del_cdr: `${baseUrl}/cdr`,
-      aceptada_por_sunat: doc.status.includes('ACCEPTED'),
-      sunat_description: doc.sunat_description || 'Comprobante procesado',
-      sunat_note: doc.sunat_notes ? (doc.sunat_notes as string[]).join(', ') : '',
-      sunat_responsecode: doc.sunat_response_code || '0',
-      sunat_soap_error: doc.status === DocumentStatus.REJECTED ? doc.sunat_description : '',
-      codigo_hash: doc.xml_digest_value,
-      cadena_para_codigo_qr: doc.qr_data,
-    };
-  }
 
   /**
    * ==========================================================================

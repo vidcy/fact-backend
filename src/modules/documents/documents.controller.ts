@@ -19,7 +19,6 @@ import { ApiTags, ApiOperation, ApiSecurity, ApiQuery, ApiResponse } from '@nest
 import { DocumentsService } from './documents.service';
 import { CreateDocumentDto } from './dto/create-document.dto';
 import { CcofactDocumentDto } from './dto/ccofact-document.dto';
-import { NubefactPayloadDto } from './dto/nubefact-payload.dto';
 import { ApiKeyGuard } from '../../common/guards/api-key.guard';
 import { CurrentCompany } from '../../common/decorators/current-company.decorator';
 import type { Company } from '@prisma/client';
@@ -163,22 +162,7 @@ export class DocumentsController {
     return this.documentsService.createDocument(company, dto);
   }
 
-  /**
-   * ADAPTADOR COMPATIBLE CON MIGRACIONES LEGACY:
-   */
-  @Post('nubefact')
-  @ApiSecurity('api-key')
-  @UseGuards(ApiKeyGuard)
-  @ApiOperation({
-    summary: 'Endpoint de Compatibilidad de Migración Legacy',
-    description: 'Permite conectar sistemas que usaban el formato JSON legacy cambiando solo la URL del host.',
-  })
-  async handleNubefact(
-    @CurrentCompany() company: Company,
-    @Body() dto: NubefactPayloadDto,
-  ) {
-    return this.documentsService.processNubefact(company, dto);
-  }
+
 
   @Get('documents')
   @ApiSecurity('api-key')
