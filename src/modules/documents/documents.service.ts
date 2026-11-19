@@ -818,7 +818,10 @@ export class DocumentsService {
       throw new BadRequestException('Solo se pueden anular Facturas (01) o Boletas de Venta (03) con Nota de Crédito.');
     }
 
-    const ncSeries = originalDoc.document_type === '01' ? 'FC01' : 'BC01';
+    const origSeries = originalDoc.series || '';
+    const ncSeries = originalDoc.document_type === '01'
+      ? (origSeries.startsWith('F') && origSeries.length === 4 ? `FC${origSeries.substring(2)}` : 'FC01')
+      : (origSeries.startsWith('B') && origSeries.length === 4 ? `BC${origSeries.substring(2)}` : 'BC01');
 
     const ncDto: CreateDocumentDto = {
       idempotency_key: `nc_anulacion_${originalDoc.id}_${Date.now()}`,
@@ -843,7 +846,7 @@ export class DocumentsService {
               unit_measure: it.unit_measure || 'NIU',
               quantity: Number(it.quantity) || 1,
               unit_price: Number(it.unit_price) || Number(originalDoc.total_amount),
-              igv_affectation_type: it.igv_affectation_type || '10',
+              igv_affectation_type: it.igv_affectation_type || (Number(originalDoc.total_exonerada) > 0 ? '20' : '10'),
             }))
           : [
               {
@@ -852,7 +855,7 @@ export class DocumentsService {
                 unit_measure: 'NIU',
                 quantity: 1,
                 unit_price: Number(originalDoc.total_amount) || 10,
-                igv_affectation_type: '10',
+                igv_affectation_type: Number(originalDoc.total_exonerada) > 0 ? '20' : '10',
               },
             ],
       send_now: true,

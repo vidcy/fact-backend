@@ -95,6 +95,7 @@ export class SeriesService {
     const client = tx || this.prisma;
     const formattedSeries = seriesCode.toUpperCase().trim();
 
+    // 1. Bloqueo pesimista a nivel de fila en la tabla series
     const rows = await client.$queryRawUnsafe(
       `SELECT id, current_number FROM series 
         WHERE company_id = $1::uuid AND document_type = $2 AND series = $3 
@@ -104,16 +105,36 @@ export class SeriesService {
       formattedSeries,
     );
 
-    let nextNumber = 1;
+    let currentSeriesNumber = 0;
+    let seriesId: string | null = null;
 
     if (rows && (rows as any[]).length > 0) {
-      const currentNumber = parseInt((rows as any[])[0].current_number, 10);
-      nextNumber = currentNumber + 1;
+      currentSeriesNumber = parseInt((rows as any[])[0].current_number, 10) || 0;
+      seriesId = (rows as any[])[0].id;
+    }
 
+    // 2. Safety Floor Anti-Colisión: comprobar el número más alto existente en la tabla documents
+    const maxDocRows = await client.$queryRawUnsafe(
+      `SELECT COALESCE(MAX(number), 0) as max_num FROM documents 
+        WHERE company_id = $1::uuid AND document_type = $2 AND series = $3`,
+      companyId,
+      documentType,
+      formattedSeries,
+    );
+
+    const maxDocNumber =
+      maxDocRows && (maxDocRows as any[]).length > 0
+        ? parseInt((maxDocRows as any[])[0].max_num, 10) || 0
+        : 0;
+
+    // El correlativo debe ser estrictamente superior al mayor registrado en series y en documents
+    const nextNumber = Math.max(currentSeriesNumber, maxDocNumber) + 1;
+
+    if (seriesId) {
       await client.$executeRawUnsafe(
         `UPDATE series SET current_number = $1, updated_at = NOW() WHERE id = $2::uuid`,
         nextNumber,
-        (rows as any[])[0].id,
+        seriesId,
       );
     } else {
       await client.$executeRawUnsafe(
@@ -126,8 +147,8 @@ export class SeriesService {
       );
     }
 
-    this.logger.debug(
-      `[CORRELATIVO RESERVADO] Empresa: ${companyId} | Tipo: ${documentType} | Serie: ${formattedSeries} | Correlativo: ${nextNumber}`,
+    this.logger.log(
+      `[CORRELATIVO RESERVADO ATÓMICO] Empresa: ${companyId} | Tipo: ${documentType} | Serie: ${formattedSeries} | Correlativo: ${nextNumber} (Piso documentos: ${maxDocNumber})`,
     );
 
     return nextNumber;
