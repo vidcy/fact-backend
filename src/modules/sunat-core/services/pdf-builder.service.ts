@@ -175,13 +175,18 @@ export class PdfBuilderService {
       </div>
 
       <div class="totals-area">
-        <div class="total-row"><span>OP. GRAVADA:</span><span>${Number(doc.total_gravada).toFixed(2)}</span></div>
+        ${Number(doc.total_gravada) > 0 ? `<div class="total-row"><span>OP. GRAVADA:</span><span>${Number(doc.total_gravada).toFixed(2)}</span></div>` : ''}
         ${Number(doc.total_exonerada) > 0 ? `<div class="total-row"><span>OP. EXONERADA:</span><span>${Number(doc.total_exonerada).toFixed(2)}</span></div>` : ''}
         ${Number(doc.total_inafecta) > 0 ? `<div class="total-row"><span>OP. INAFECTA:</span><span>${Number(doc.total_inafecta).toFixed(2)}</span></div>` : ''}
-        <div class="total-row"><span>I.G.V. (18%):</span><span>${Number(doc.total_igv).toFixed(2)}</span></div>
+        <div class="total-row"><span>I.G.V. (${Number(doc.total_igv) > 0 ? (doc.items?.[0]?.igv_percentage || 18) + '%' : '0%'}):</span><span>${Number(doc.total_igv).toFixed(2)}</span></div>
         <div class="total-row grand-total"><span>TOTAL:</span><span>${doc.currency === 'PEN' ? 'S/ ' : '$ '}${Number(doc.total_amount).toFixed(2)}</span></div>
       </div>
     </div>
+
+    ${Number(doc.total_exonerada) > 0 ? `
+    <div style="margin: 12px 0 6px 0; padding: 7px 12px; background: #f0fdf4; border: 1px solid #86efac; border-radius: 6px; font-weight: 700; color: #166534; font-size: 11px; text-align: center; letter-spacing: 0.3px;">
+      BIENES TRANSFERIDOS EN LA AMAZONÍA PARA SER CONSUMIDOS EN LA MISMA - LEY N° 27037
+    </div>` : ''}
 
     <div class="legal-notice">
       Representación impresa de Comprobante de Pago Electrónico generado conforme a las especificaciones técnicas de SUNAT UBL 2.1.<br>
@@ -253,10 +258,16 @@ export class PdfBuilderService {
   </table>
   <div class="divider"></div>
   <table>
-    <tr><td>OP. GRAVADA:</td><td class="text-right">${Number(doc.total_gravada).toFixed(2)}</td></tr>
-    <tr><td>I.G.V. (18%):</td><td class="text-right">${Number(doc.total_igv).toFixed(2)}</td></tr>
+    ${Number(doc.total_gravada) > 0 ? `<tr><td>OP. GRAVADA:</td><td class="text-right">${Number(doc.total_gravada).toFixed(2)}</td></tr>` : ''}
+    ${Number(doc.total_exonerada) > 0 ? `<tr><td>OP. EXONERADA:</td><td class="text-right">${Number(doc.total_exonerada).toFixed(2)}</td></tr>` : ''}
+    ${Number(doc.total_inafecta) > 0 ? `<tr><td>OP. INAFECTA:</td><td class="text-right">${Number(doc.total_inafecta).toFixed(2)}</td></tr>` : ''}
+    <tr><td>I.G.V. (${Number(doc.total_igv) > 0 ? (doc.items?.[0]?.igv_percentage || 18) + '%' : '0%'}):</td><td class="text-right">${Number(doc.total_igv).toFixed(2)}</td></tr>
     <tr class="bold" style="font-size: 13px;"><td>TOTAL:</td><td class="text-right">${doc.currency} ${Number(doc.total_amount).toFixed(2)}</td></tr>
   </table>
+  ${Number(doc.total_exonerada) > 0 ? `
+  <div class="divider"></div>
+  <div class="text-center bold" style="font-size: 8px; padding: 2px 0;">BIENES TRANSFERIDOS EN LA AMAZON\u00cdA PARA SER CONSUMIDOS EN LA MISMA - LEY N\u00b0 27037</div>
+  ` : ''}
   <div class="divider"></div>
   <div style="font-size: 9px;">SON: ${words}</div>
   <div class="divider"></div>

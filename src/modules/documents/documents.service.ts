@@ -295,8 +295,8 @@ export class DocumentsService {
             unit_value: unitVal,
             unit_price: price,
             igv_affectation_type: affectation,
-            igv_percentage: 18.0,
-            igv_amount: lineIgv,
+            igv_percentage: affectation === '20' || affectation === '30' ? 0.0 : 18.0,
+            igv_amount: affectation === '20' || affectation === '30' ? 0.0 : lineIgv,
             subtotal: lineSubtotal,
             total: lineTotal,
           });
