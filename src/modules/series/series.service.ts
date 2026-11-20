@@ -62,6 +62,27 @@ export class SeriesService {
   }
 
   /**
+   * Sincroniza e inicializa múltiples series en lote para una empresa.
+   */
+  public async syncSeries(
+    companyId: string,
+    seriesList: Array<{ document_type: string; series: string; current_number: number }>,
+  ): Promise<Series[]> {
+    const results: Series[] = [];
+    for (const item of seriesList) {
+      if (!item.document_type || !item.series) continue;
+      const s = await this.createOrUpdateSeries(
+        companyId,
+        item.document_type,
+        item.series,
+        Number(item.current_number) || 0,
+      );
+      results.push(s);
+    }
+    return results;
+  }
+
+  /**
    * Inicializa las series obligatorias para una nueva empresa emisora.
    */
   public async initDefaultSeries(companyId: string): Promise<void> {

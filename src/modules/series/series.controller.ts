@@ -31,4 +31,13 @@ export class SeriesController {
       body.initial_number || 0,
     );
   }
+
+  @Post('sync')
+  @ApiOperation({ summary: 'Sincronizar e inicializar múltiples series y correlativos en lote' })
+  async sync(
+    @CurrentCompany() company: Company,
+    @Body() body: { series: Array<{ document_type: string; series: string; current_number: number }> },
+  ) {
+    return this.seriesService.syncSeries(company.id, body.series || []);
+  }
 }
