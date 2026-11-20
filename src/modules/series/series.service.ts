@@ -1,4 +1,4 @@
-﻿import { Injectable, Logger } from '@nestjs/common';
+import { Injectable, Logger } from '@nestjs/common';
 import { PrismaService } from '../../prisma/prisma.service';
 import { Series } from '@prisma/client';
 
@@ -72,6 +72,7 @@ export class SeriesService {
       { type: '07', series: 'BC01' },
       { type: '08', series: 'FD01' },
       { type: '08', series: 'BD01' },
+      { type: '09', series: 'T001' },
     ];
     for (const d of defaults) {
       await this.createOrUpdateSeries(companyId, d.type, d.series, 0);

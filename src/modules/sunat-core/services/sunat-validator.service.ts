@@ -1,4 +1,4 @@
-﻿import { Injectable } from '@nestjs/common';
+import { Injectable } from '@nestjs/common';
 import { CreateDocumentDto } from '../../documents/dto/create-document.dto';
 
 /**
@@ -112,11 +112,57 @@ export class SunatValidatorService {
 
     // 3. Validación de Notas de Crédito (07) y Débito (08)
     if (dto.document_type === '07' || dto.document_type === '08') {
-      if (!dto.ref_document_type || !dto.ref_series || !dto.ref_number) {
-        errors.push('Las Notas de Crédito y Débito exigen los campos de comprobante de referencia (ref_document_type, ref_series, ref_number).');
+      const isCredit = dto.document_type === '07';
+      const refType = dto.ref_document_type;
+      const refSeries = dto.ref_series ? dto.ref_series.toUpperCase().trim() : '';
+
+      if (!refType || !refSeries || !dto.ref_number) {
+        errors.push('Las Notas de Crédito y Débito exigen los campos del comprobante de referencia (ref_document_type, ref_series, ref_number).');
+      } else {
+        if (!['01', '03'].includes(refType)) {
+          errors.push(`El tipo de comprobante que modifica debe ser '01' (Factura) o '03' (Boleta). Se envió: ${refType}`);
+        }
+
+        // Validación de correspondencia de series normada por SUNAT:
+        // Si modifica Factura (01), la serie de la nota DEBE iniciar con 'F' (ej. FC01, FN01)
+        // Si modifica Boleta (03), la serie de la nota DEBE iniciar con 'B' (ej. BC01, BN01)
+        const noteSeries = dto.series ? dto.series.toUpperCase().trim() : '';
+        if (refType === '01' && !noteSeries.startsWith('F')) {
+          errors.push(`La serie de una Nota que modifica una Factura (01) debe iniciar con la letra 'F' (ej. FC01, FN01). Se envió: ${noteSeries}`);
+        }
+        if (refType === '03' && !noteSeries.startsWith('B')) {
+          errors.push(`La serie de una Nota que modifica una Boleta (03) debe iniciar con la letra 'B' (ej. BC01, BN01). Se envió: ${noteSeries}`);
+        }
       }
+
       if (!dto.ref_reason_code) {
-        errors.push('Debe especificar el código de motivo según Catálogo 09 (ref_reason_code).');
+        errors.push(`Debe especificar el código de motivo según ${isCredit ? 'Catálogo 09' : 'Catálogo 10'} de SUNAT (ref_reason_code).`);
+      } else {
+        const code = String(dto.ref_reason_code).padStart(2, '0');
+        if (isCredit) {
+          const validCodes = ['01', '02', '03', '04', '05', '06', '07', '08', '09', '10', '11', '12', '13'];
+          if (!validCodes.includes(code)) {
+            errors.push(`Código de motivo de Nota de Crédito '${dto.ref_reason_code}' no válido en Catálogo 09 de SUNAT (01 a 13).`);
+          }
+        }
+      }
+
+      // Si modifica Factura (01), el cliente debe tener RUC (6)
+      if (refType === '01') {
+        if (dto.client_doc_type !== '6') {
+          errors.push('Una Nota de Crédito que modifica una Factura debe consignar a un cliente con RUC (tipo de documento 6).');
+        }
+        if (!this.isValidRuc(dto.client_doc_number)) {
+          errors.push(`El RUC del cliente '${dto.client_doc_number}' en la Nota de Crédito es inválido ante el algoritmo Módulo 11 de SUNAT.`);
+        }
+      }
+    }
+
+    // 4. Validación de Guía de Remisión Remitente (09)
+    if (dto.document_type === '09') {
+      const guideSeries = dto.series ? dto.series.toUpperCase().trim() : '';
+      if (!guideSeries.startsWith('T')) {
+        errors.push(`La serie de una Guía de Remisión Remitente (09) debe iniciar con la letra 'T' (ej. T001, T002). Se envió: ${guideSeries}`);
       }
     }
 

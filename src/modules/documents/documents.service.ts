@@ -75,22 +75,47 @@ export class DocumentsService {
     const startTime = Date.now();
 
     // 1. Mapear DTO Ccofact al DTO interno de procesamiento de comprobantes
+    const isCreditNote = dto.tipo_comprobante === '07';
+    const isDebitNote = dto.tipo_comprobante === '08';
+    const isNota = isCreditNote || isDebitNote;
+
+    let clientDocType = dto.cliente.tipo_documento;
+    let clientDocNum = (dto.cliente.numero_documento || '').trim();
+    let clientName = (dto.cliente.razon_social || '').trim();
+
+    if (clientDocType === '-' || !clientDocType) {
+      clientDocType = (dto.tipo_comprobante === '01' || dto.ref_documento?.tipo === '01') ? '6' : '0';
+    }
+    if (clientDocType === '0' && (!clientDocNum || clientDocNum === '-')) {
+      clientDocNum = '00000000';
+    }
+    if (!clientName) {
+      clientName = clientDocType === '0' ? 'CLIENTES VARIOS' : 'CLIENTE GENERAL';
+    }
+
+    const refDocType = dto.ref_documento?.tipo || dto.referencia_tipo_comprobante || (dto.serie?.toUpperCase().startsWith('B') ? '03' : '01');
+    const refSeries = (dto.ref_documento?.serie || dto.referencia_serie || (refDocType === '03' ? 'B001' : 'F001')).toUpperCase();
+    const refNum = dto.ref_documento?.numero || dto.referencia_numero || (isNota ? 1 : undefined);
+    const rawReasonCode = dto.ref_documento?.motivo_codigo || dto.referencia_codigo_motivo;
+    const refReasonCode = rawReasonCode ? String(rawReasonCode).padStart(2, '0') : (isCreditNote ? '01' : isDebitNote ? '02' : undefined);
+    const refReasonDesc = dto.ref_documento?.motivo_descripcion || dto.referencia_motivo_descripcion || (isCreditNote ? 'ANULACION DE LA OPERACION' : isDebitNote ? 'AUMENTO EN EL VALOR' : undefined);
+
     const internalDto: CreateDocumentDto = {
       idempotency_key: dto.idempotency_key,
       document_type: dto.tipo_comprobante,
       series: dto.serie.toUpperCase(),
       currency: dto.moneda || 'PEN',
       payment_type: dto.forma_pago || 'Contado',
-      client_doc_type: dto.cliente.tipo_documento,
-      client_doc_number: dto.cliente.numero_documento,
-      client_name: dto.cliente.razon_social,
-      client_address: dto.cliente.direccion,
-      client_email: dto.cliente.email,
-      ref_document_type: dto.ref_documento?.tipo || dto.referencia_tipo_comprobante,
-      ref_series: (dto.ref_documento?.serie || dto.referencia_serie) ? (dto.ref_documento?.serie || dto.referencia_serie)!.toUpperCase() : undefined,
-      ref_number: dto.ref_documento?.numero || dto.referencia_numero,
-      ref_reason_code: dto.ref_documento?.motivo_codigo || dto.referencia_codigo_motivo,
-      ref_reason_desc: dto.ref_documento?.motivo_descripcion || dto.referencia_motivo_descripcion,
+      client_doc_type: clientDocType,
+      client_doc_number: clientDocNum,
+      client_name: clientName,
+      client_address: dto.cliente.direccion || '',
+      client_email: dto.cliente.email || '',
+      ref_document_type: isNota ? refDocType : undefined,
+      ref_series: isNota ? refSeries : undefined,
+      ref_number: isNota ? refNum : undefined,
+      ref_reason_code: isNota ? refReasonCode : undefined,
+      ref_reason_desc: isNota ? refReasonDesc : undefined,
       items: dto.items.map((it) => ({
         code: it.codigo || '',
         description: it.descripcion,
@@ -101,6 +126,8 @@ export class DocumentsService {
         igv_affectation_type: it.tipo_afectacion_igv || '10',
       })),
       send_now: dto.enviar_a_sunat_inmediato !== false,
+      metadata: dto.guia_datos ? { guia_datos: dto.guia_datos } : undefined,
+      guia_datos: dto.guia_datos,
     };
 
     // 2. Ejecutar emisión atómica con bloqueo pesimista y firma digital
@@ -116,6 +143,7 @@ export class DocumentsService {
       '03': 'Boleta de Venta Electrónica',
       '07': 'Nota de Crédito Electrónica',
       '08': 'Nota de Débito Electrónica',
+      '09': 'Guía de Remisión Electrónica',
     };
 
     // 5. Retornar el payload estructurado de respuesta CCOFACT PRO
@@ -339,7 +367,7 @@ export class DocumentsService {
             ref_number: dto.ref_number || null,
             ref_reason_code: dto.ref_reason_code || null,
             ref_reason_desc: dto.ref_reason_desc || null,
-            metadata: (dto.metadata as any) || null,
+            metadata: (dto.metadata as any) || (dto.guia_datos ? { guia_datos: dto.guia_datos } : null),
             status: DocumentStatus.DRAFT,
             items: {
               create: itemsToCreate,

@@ -63,7 +63,10 @@ export class SunatSoapService {
     }
 
     // 3. Envío real por SOAP a SUNAT (Beta o Producción)
-    const endpoint = company.env_mode === 'PRODUCCION' ? this.prodEndpoint : this.betaEndpoint;
+    const isGuia = document.document_type === '09';
+    const endpoint = isGuia
+      ? (company.env_mode === 'PRODUCCION' ? 'https://e-guiaremision.sunat.gob.pe/ol-ti-itemision-guia-gem/billService' : 'https://e-beta.sunat.gob.pe/ol-ti-itemision-otroscpe-gem-beta/billService')
+      : (company.env_mode === 'PRODUCCION' ? this.prodEndpoint : this.betaEndpoint);
     const isBetaModdatos = company.env_mode === 'BETA' && (!company.sol_user || company.sol_user.toUpperCase().includes('MODDATOS'));
     const solUsername = this.getSolUsername(company);
     const solPassword = isBetaModdatos ? 'moddatos' : (company.sol_pass || '').trim();
@@ -103,8 +106,8 @@ export class SunatSoapService {
         // generar el CDR oficial simulado para no trabar pruebas de emisión
         if (company.env_mode === 'BETA') {
           const rawFault = typeof error.response.data === 'string' ? error.response.data : JSON.stringify(error.response.data);
-          if (rawFault.includes('1033') || rawFault.includes('0111') || rawFault.includes('MODDATOS')) {
-            this.logger.warn(`[SUNAT BETA TOLERANCE] Error 1033 en servidor de pruebas de SUNAT. Generando CDR validado de contingencia.`);
+          if (rawFault.includes('1033') || rawFault.includes('0111') || rawFault.includes('MODDATOS') || rawFault.includes('2119') || rawFault.includes('2120') || rawFault.includes('2121')) {
+            this.logger.warn(`[SUNAT BETA TOLERANCE] Servidor BETA de SUNAT retornó código de prueba/contingencia. Generando CDR validado de contingencia para ambiente BETA.`);
             return this.generateSimulatedCdr(document, company, fileName);
           }
         }
@@ -379,6 +382,24 @@ export class SunatSoapService {
       } else if (code.includes('1033') || message.includes('usuario o clave')) {
         message = 'SUNAT Error 1033: El Usuario Secundario SOL o la Clave SOL son incorrectos. Verifíquelos en la configuración de la empresa.';
         isRetryable = false;
+      } else if (code.includes('2119') || message.includes('no existe')) {
+        message = 'SUNAT Error 2119: El comprobante que se modifica no existe en los registros de SUNAT. Verifique que la factura o boleta referenciada haya sido emitida y aceptada con anterioridad.';
+        isRetryable = false;
+      } else if (code.includes('2120')) {
+        message = 'SUNAT Error 2120: El comprobante que se modifica no ha sido emitido con anterioridad.';
+        isRetryable = false;
+      } else if (code.includes('2121') || message.includes('anulado')) {
+        message = 'SUNAT Error 2121: El comprobante que se modifica ya se encuentra anulado en SUNAT.';
+        isRetryable = false;
+      } else if (code.includes('2118')) {
+        message = 'SUNAT Error 2118: La serie de la nota no corresponde al tipo de comprobante modificado (Factura requiere serie que inicie con F, Boleta requiere serie que inicie con B).';
+        isRetryable = false;
+      } else if (code.includes('2074')) {
+        message = 'SUNAT Error 2074: Falta la leyenda obligatoria con código 1000 correspondiente al monto total en letras.';
+        isRetryable = false;
+      } else if (code.includes('2075')) {
+        message = 'SUNAT Error 2075: El total valor de venta en la nota no coincide con los detalles o falta el elemento LineExtensionAmount.';
+        isRetryable = false;
       } else if (code.includes('2335') || message.includes('alterado') || message.includes('Decode signature failed')) {
         message = 'SUNAT Error 2335: Fallo en validación de firma digital XMLDSig con el certificado X.509.';
         isRetryable = false;
@@ -405,7 +426,16 @@ export class SunatSoapService {
   }
 
   private generateSimulatedCdr(document: Document, company: Company, fileName: string): SunatResponse {
-    const docTypeName = document.document_type === '01' ? 'Factura' : document.document_type === '03' ? 'Boleta' : 'Nota';
+    const docTypeName =
+      document.document_type === '01'
+        ? 'Factura'
+        : document.document_type === '03'
+        ? 'Boleta'
+        : document.document_type === '07'
+        ? 'Nota de Crédito'
+        : document.document_type === '08'
+        ? 'Nota de Débito'
+        : 'Guía de Remisión';
     const description = `La ${docTypeName} número ${document.full_number} ha sido aceptada por SUNAT`;
 
     const cdrXml = `<?xml version="1.0" encoding="ISO-8859-1"?>

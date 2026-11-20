@@ -43,9 +43,9 @@ export class CreateDocumentDto {
   @IsString()
   idempotency_key?: string;
 
-  @ApiProperty({ example: '01', description: '01 Factura, 03 Boleta, 07 Nota de Crédito, 08 Nota de Débito' })
+  @ApiProperty({ example: '01', description: '01 Factura, 03 Boleta, 07 Nota de Crédito, 08 Nota de Débito, 09 Guía de Remisión' })
   @IsNotEmpty()
-  @IsIn(['01', '03', '07', '08'])
+  @IsIn(['01', '03', '07', '08', '09'])
   document_type: string;
 
   @ApiProperty({ example: 'F001', description: 'Serie del comprobante (F001, B001, FC01, BC01, etc.)' })
@@ -138,4 +138,8 @@ export class CreateDocumentDto {
   @ApiPropertyOptional()
   @IsOptional()
   metadata?: any;
+
+  @ApiPropertyOptional({ description: 'Datos oficiales de traslado para Guía de Remisión (09)' })
+  @IsOptional()
+  guia_datos?: any;
 }

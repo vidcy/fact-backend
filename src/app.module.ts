@@ -8,6 +8,7 @@ import { SunatCoreModule } from './modules/sunat-core/sunat-core.module';
 import { QueueModule } from './modules/queue/queue.module';
 import { AuthModule } from './modules/auth/auth.module';
 import { UsersModule } from './modules/users/users.module';
+import { ConsultasModule } from './modules/consultas/consultas.module';
 
 /**
  * ============================================================================
@@ -40,6 +41,7 @@ import { UsersModule } from './modules/users/users.module';
     DocumentsModule,
     SunatCoreModule,
     QueueModule,
+    ConsultasModule,
   ],
 })
 export class AppModule implements OnApplicationBootstrap {

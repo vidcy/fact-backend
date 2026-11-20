@@ -21,7 +21,9 @@ export class PdfBuilderService {
         ? 'BOLETA DE VENTA ELECTRÓNICA'
         : document.document_type === '07'
         ? 'NOTA DE CRÉDITO ELECTRÓNICA'
-        : 'NOTA DE DÉBITO ELECTRÓNICA';
+        : document.document_type === '08'
+        ? 'NOTA DE DÉBITO ELECTRÓNICA'
+        : 'GUÍA DE REMISIÓN ELECTRÓNICA - REMITENTE';
 
     const words = this.numberToWords.convert(Number(document.total_amount), document.currency);
 
@@ -118,7 +120,7 @@ export class PdfBuilderService {
 
     <div class="client-grid">
       <div>
-        <div class="field-row"><span class="field-label">SEÑOR(ES):</span><span class="field-value">${doc.client_name}</span></div>
+        <div class="field-row"><span class="field-label">${doc.document_type === '09' ? 'DESTINATARIO:' : 'SEÑOR(ES):'}</span><span class="field-value">${doc.client_name}</span></div>
         <div class="field-row"><span class="field-label">${doc.client_doc_type === '6' ? 'R.U.C.' : 'DOCUMENTO'}:</span><span class="field-value font-mono">${doc.client_doc_number}</span></div>
         <div class="field-row"><span class="field-label">DIRECCIÓN:</span><span class="field-value">${doc.client_address || '-'}</span></div>
       </div>
@@ -129,8 +131,40 @@ export class PdfBuilderService {
       </div>
     </div>
 
+    ${doc.document_type === '09' ? `
+    <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-bottom: 14px; background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 8px; padding: 12px 14px;">
+      <div>
+        <div style="font-weight: 800; font-size: 10px; color: #4338ca; text-transform: uppercase; margin-bottom: 6px;">DATOS DEL TRASLADO</div>
+        <div class="field-row"><span class="field-label">MOTIVO:</span><span class="field-value">${(doc.metadata as any)?.guia_datos?.motivo_traslado_descripcion || 'VENTA'}</span></div>
+        <div class="field-row"><span class="field-label">MODALIDAD:</span><span class="field-value">${(doc.metadata as any)?.guia_datos?.modalidad_traslado === '01' ? 'TRANSPORTE PÚBLICO' : 'TRANSPORTE PRIVADO'}</span></div>
+        <div class="field-row"><span class="field-label">INICIO TRASLADO:</span><span class="field-value">${(doc.metadata as any)?.guia_datos?.fecha_inicio_traslado || doc.issue_date}</span></div>
+        <div class="field-row"><span class="field-label">PESO TOTAL:</span><span class="field-value font-mono font-bold">${(doc.metadata as any)?.guia_datos?.peso_bruto_total || 1} ${(doc.metadata as any)?.guia_datos?.unidad_peso || 'KGM'}</span></div>
+        <div class="field-row"><span class="field-label">N° BULTOS:</span><span class="field-value font-mono font-bold">${(doc.metadata as any)?.guia_datos?.numero_bultos || 1}</span></div>
+      </div>
+      <div>
+        <div style="font-weight: 800; font-size: 10px; color: #4338ca; text-transform: uppercase; margin-bottom: 6px;">PUNTOS DE TRASLADO Y TRANSPORTE</div>
+        <div class="field-row"><span class="field-label">P. PARTIDA:</span><span class="field-value">${(doc.metadata as any)?.guia_datos?.punto_partida?.direccion || company.direccion} (Ubigeo: ${(doc.metadata as any)?.guia_datos?.punto_partida?.ubigeo || company.ubigeo})</span></div>
+        <div class="field-row"><span class="field-label">P. LLEGADA:</span><span class="field-value">${(doc.metadata as any)?.guia_datos?.punto_llegada?.direccion || doc.client_address || '-'} (Ubigeo: ${(doc.metadata as any)?.guia_datos?.punto_llegada?.ubigeo || '150101'})</span></div>
+        ${(doc.metadata as any)?.guia_datos?.modalidad_traslado === '01'
+          ? `<div class="field-row"><span class="field-label">TRANSPORTISTA:</span><span class="field-value">${(doc.metadata as any)?.guia_datos?.transportista?.razon_social || '-'} (RUC: ${(doc.metadata as any)?.guia_datos?.transportista?.numero_documento || '-'})</span></div>`
+          : `<div class="field-row"><span class="field-label">CONDUCTOR:</span><span class="field-value">${(doc.metadata as any)?.guia_datos?.conductor?.nombre_completo || (doc.metadata as any)?.guia_datos?.conductor?.nombres || '-'} (Lic: ${(doc.metadata as any)?.guia_datos?.conductor?.licencia || '-'})</span></div>
+             <div class="field-row"><span class="field-label">VEHÍCULO PLACA:</span><span class="field-value font-mono font-bold">${(doc.metadata as any)?.guia_datos?.vehiculo?.placa || '-'}</span></div>`
+        }
+      </div>
+    </div>
+    ` : ''}
+
     <table class="items-table">
       <thead>
+        ${doc.document_type === '09' ? `
+        <tr>
+          <th style="width: 35px;" class="text-center">#</th>
+          <th style="width: 100px;">CÓDIGO</th>
+          <th>DESCRIPCIÓN DEL BIEN A TRASLADAR</th>
+          <th style="width: 80px;" class="text-center">UNIDAD</th>
+          <th style="width: 100px;" class="text-right">CANTIDAD</th>
+        </tr>
+        ` : `
         <tr>
           <th style="width: 35px;" class="text-center">#</th>
           <th style="width: 70px;">CÓDIGO</th>
@@ -141,9 +175,18 @@ export class PdfBuilderService {
           <th style="width: 85px;" class="text-right">P. UNIT</th>
           <th style="width: 90px;" class="text-right">TOTAL</th>
         </tr>
+        `}
       </thead>
       <tbody>
-        ${(doc.items || []).map((it, idx) => `
+        ${(doc.items || []).map((it, idx) => doc.document_type === '09' ? `
+          <tr>
+            <td class="text-center" style="color: #94a3b8;">${idx + 1}</td>
+            <td style="font-family: monospace;">${it.code || '-'}</td>
+            <td><b>${it.description}</b></td>
+            <td class="text-center">${it.unit_measure}</td>
+            <td class="text-right"><b>${Number(it.quantity).toFixed(2)}</b></td>
+          </tr>
+        ` : `
           <tr>
             <td class="text-center" style="color: #94a3b8;">${idx + 1}</td>
             <td style="font-family: monospace;">${it.code || '-'}</td>
@@ -158,9 +201,11 @@ export class PdfBuilderService {
       </tbody>
     </table>
 
+    ${doc.document_type === '09' ? '' : `
     <div class="words-box">
       SON: ${words}
     </div>
+    `}
 
     <div class="footer-area">
       <div class="qr-info-block">
@@ -175,11 +220,17 @@ export class PdfBuilderService {
       </div>
 
       <div class="totals-area">
-        ${Number(doc.total_gravada) > 0 ? `<div class="total-row"><span>OP. GRAVADA:</span><span>${Number(doc.total_gravada).toFixed(2)}</span></div>` : ''}
-        ${Number(doc.total_exonerada) > 0 ? `<div class="total-row"><span>OP. EXONERADA:</span><span>${Number(doc.total_exonerada).toFixed(2)}</span></div>` : ''}
-        ${Number(doc.total_inafecta) > 0 ? `<div class="total-row"><span>OP. INAFECTA:</span><span>${Number(doc.total_inafecta).toFixed(2)}</span></div>` : ''}
-        <div class="total-row"><span>I.G.V. (${Number(doc.total_igv) > 0 ? (doc.items?.[0]?.igv_percentage || 18) + '%' : '0%'}):</span><span>${Number(doc.total_igv).toFixed(2)}</span></div>
-        <div class="total-row grand-total"><span>TOTAL:</span><span>${doc.currency === 'PEN' ? 'S/ ' : '$ '}${Number(doc.total_amount).toFixed(2)}</span></div>
+        ${doc.document_type === '09' ? `
+          <div class="total-row"><span>PESO BRUTO TOTAL:</span><span class="font-bold">${(doc.metadata as any)?.guia_datos?.peso_bruto_total || 1} ${(doc.metadata as any)?.guia_datos?.unidad_peso || 'KGM'}</span></div>
+          <div class="total-row"><span>N° DE BULTOS:</span><span class="font-bold">${(doc.metadata as any)?.guia_datos?.numero_bultos || 1}</span></div>
+          <div class="total-row grand-total"><span>TOTAL ÍTEMS:</span><span>${doc.items?.length || 0} BIENES</span></div>
+        ` : `
+          ${Number(doc.total_gravada) > 0 ? `<div class="total-row"><span>OP. GRAVADA:</span><span>${Number(doc.total_gravada).toFixed(2)}</span></div>` : ''}
+          ${Number(doc.total_exonerada) > 0 ? `<div class="total-row"><span>OP. EXONERADA:</span><span>${Number(doc.total_exonerada).toFixed(2)}</span></div>` : ''}
+          ${Number(doc.total_inafecta) > 0 ? `<div class="total-row"><span>OP. INAFECTA:</span><span>${Number(doc.total_inafecta).toFixed(2)}</span></div>` : ''}
+          <div class="total-row"><span>I.G.V. (${Number(doc.total_igv) > 0 ? (doc.items?.[0]?.igv_percentage || 18) + '%' : '0%'}):</span><span>${Number(doc.total_igv).toFixed(2)}</span></div>
+          <div class="total-row grand-total"><span>TOTAL:</span><span>${doc.currency === 'PEN' ? 'S/ ' : '$ '}${Number(doc.total_amount).toFixed(2)}</span></div>
+        `}
       </div>
     </div>
 

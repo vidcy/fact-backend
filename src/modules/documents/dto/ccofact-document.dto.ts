@@ -191,10 +191,11 @@ export class CcofactDocumentDto {
       '01 = Factura Electrónica, ' +
       '03 = Boleta de Venta Electrónica, ' +
       '07 = Nota de Crédito Electrónica, ' +
-      '08 = Nota de Débito Electrónica',
+      '08 = Nota de Débito Electrónica, ' +
+      '09 = Guía de Remisión Electrónica (Remitente)',
   })
   @IsNotEmpty({ message: 'El tipo de comprobante es obligatorio' })
-  @IsIn(['01', '03', '07', '08'], { message: 'El tipo de comprobante debe ser 01, 03, 07 u 08' })
+  @IsIn(['01', '03', '07', '08', '09'], { message: 'El tipo de comprobante debe ser 01, 03, 07, 08 u 09' })
   tipo_comprobante: string;
 
   @ApiProperty({
@@ -315,4 +316,10 @@ export class CcofactDocumentDto {
   @IsOptional()
   @IsBoolean()
   enviar_a_sunat_inmediato?: boolean;
+
+  @ApiPropertyOptional({
+    description: 'Datos oficiales de traslado para Guía de Remisión (09): motivo, modalidad, partida, llegada, transportista, conductor, bultos y peso',
+  })
+  @IsOptional()
+  guia_datos?: any;
 }
