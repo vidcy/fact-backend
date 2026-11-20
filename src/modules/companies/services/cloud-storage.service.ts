@@ -33,7 +33,7 @@ export class CloudStorageService {
     this.region = process.env.DO_SPACES_REGION || 'nyc3';
     this.bucket = process.env.DO_SPACES_BUCKET || 'controlfinanzas';
     this.cdn = process.env.DO_SPACES_CDN || 'https://nyc3.cdn.digitaloceanspaces.com';
-    this.rootFolder = process.env.DO_SPACES_ROOT_FOLDER || 'facturacion-electronica';
+    this.rootFolder = process.env.DO_SPACES_ROOT_FOLDER || 'ccofact';
     const key = process.env.DO_SPACES_KEY;
     const secret = process.env.DO_SPACES_SECRET;
 
@@ -68,8 +68,8 @@ export class CloudStorageService {
   ): Promise<UploadResult> {
     const cleanFilename = filename.replace(/[^a-zA-Z0-9._-]/g, '_');
     const key = `${this.rootFolder}/certificates/${ruc}/${Date.now()}-${cleanFilename}`;
-    const cleanEndpoint = this.endpoint.replace(/^https?:\/\//, '');
-    const publicUrl = `${this.cdn.replace(/\/$/, '')}/${this.bucket}/${key}`;
+    const cleanEndpoint = this.endpoint.replace(/^https?:\/\//, '').replace(/\/$/, '');
+    const publicUrl = `https://${this.bucket}.${cleanEndpoint}/${key}`;
 
     if (this.isConfigured && this.s3Client) {
       try {
