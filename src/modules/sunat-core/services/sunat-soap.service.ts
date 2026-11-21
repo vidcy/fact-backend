@@ -12,6 +12,9 @@ export interface SunatResponse {
   cdrXml?: string;
   cdrZipBase64?: string;
   isRetryableError?: boolean;
+  recipientDocType?: string;
+  recipientDocNumber?: string;
+  issueDate?: string;
 }
 
 @Injectable()
@@ -134,13 +137,30 @@ export class SunatSoapService {
     series: string,
     number: number,
   ): Promise<SunatResponse> {
-    const consultEndpoint =
-      company.env_mode === 'PRODUCCION' ? this.prodConsultEndpoint : this.betaConsultEndpoint;
-    const isBetaModdatos = company.env_mode === 'BETA' && (!company.sol_user || company.sol_user.toUpperCase().includes('MODDATOS'));
-    const solUsername = this.getSolUsername(company);
-    const solPassword = isBetaModdatos ? 'moddatos' : (company.sol_pass || '').trim();
     const paddedNumber = String(number).padStart(8, '0');
     const fileName = `${company.ruc}-${documentType}-${series}-${paddedNumber}`;
+
+    // Si la empresa tiene credenciales de prueba MODDATOS o no tiene credenciales SOL configuradas:
+    // El servicio de consulta oficial de SUNAT (billConsultService) exige credenciales secundarias reales.
+    // Nunca generamos datos ficticios o simulados para consultas.
+    const isModdatosOrEmpty =
+      !company.sol_user ||
+      company.sol_user.trim() === '' ||
+      company.sol_user.toUpperCase().includes('MODDATOS');
+
+    if (isModdatosOrEmpty) {
+      this.logger.warn(`[SUNAT CONSULTA] Empresa ${company.ruc} tiene credenciales de prueba (${company.sol_user || 'VACÍO'}).`);
+      return {
+        success: false,
+        responseCode: 'CREDENCIALES_PRUEBA_MODDATOS',
+        description: 'La empresa tiene configuradas credenciales de prueba (MODDATOS). Para consultar en tiempo real los comprobantes emitidos en los servidores oficiales de SUNAT, configure su Usuario SOL secundario y Clave SOL en el perfil de la empresa.',
+        isRetryableError: false,
+      };
+    }
+
+    const consultEndpoint = this.prodConsultEndpoint;
+    const solUsername = this.getSolUsername(company);
+    const solPassword = (company.sol_pass || '').trim();
 
     const soapEnvelope =
       '<soapenv:Envelope xmlns:soapenv="http://schemas.xmlsoap.org/soap/envelope/" xmlns:ser="http://service.sunat.gob.pe" xmlns:wsse="http://docs.oasis-open.org/wss/2004/01/oasis-200401-wss-wssecurity-secext-1.0.xsd">' +
@@ -160,7 +180,7 @@ export class SunatSoapService {
       '</soapenv:Envelope>';
 
     try {
-      this.logger.log(`Consultando CDR en SUNAT (${company.env_mode}) para ${series}-${paddedNumber}...`);
+      this.logger.log(`Consultando CDR en SUNAT Producción para ${series}-${paddedNumber}...`);
       const response = await axios.post(consultEndpoint, soapEnvelope, {
         headers: {
           'Content-Type': 'text/xml;charset=utf-8',
@@ -178,7 +198,7 @@ export class SunatSoapService {
       return {
         success: false,
         responseCode: 'CONSULT_TIMEOUT',
-        description: `Error de conexión o timeout al consultar CDR: ${error.message}`,
+        description: `Error de conexión o timeout al consultar CDR en SUNAT: ${error.message}`,
         isRetryableError: true,
       };
     }
@@ -213,6 +233,9 @@ export class SunatSoapService {
         let respCode = '0';
         let desc = statusMessage || 'Comprobante aceptado por SUNAT (CDR recuperado)';
         const notes: string[] = [];
+        let recipientDocType: string | undefined;
+        let recipientDocNumber: string | undefined;
+        let issueDate: string | undefined;
 
         if (cdrXml) {
           const parser = new DOMParser();
@@ -221,6 +244,25 @@ export class SunatSoapService {
           const descriptionEl = doc.getElementsByTagName('cbc:Description')[0] || doc.getElementsByTagName('Description')[0];
           if (responseCodeEl && responseCodeEl.textContent) respCode = responseCodeEl.textContent.trim();
           if (descriptionEl && descriptionEl.textContent) desc = descriptionEl.textContent.trim();
+
+          const issueDateEl = doc.getElementsByTagName('cbc:IssueDate')[0];
+          if (issueDateEl && issueDateEl.textContent) issueDate = issueDateEl.textContent.trim();
+
+          const recipientParty = doc.getElementsByTagName('cac:RecipientParty')[0];
+          if (recipientParty) {
+            const idEl = recipientParty.getElementsByTagName('cbc:ID')[0];
+            if (idEl && idEl.textContent) {
+              const rawId = idEl.textContent.trim();
+              if (rawId.includes('-')) {
+                const parts = rawId.split('-');
+                recipientDocType = parts[0].trim();
+                recipientDocNumber = parts[1].trim();
+              } else {
+                recipientDocNumber = rawId.trim();
+                recipientDocType = rawId.length === 11 ? '6' : '1';
+              }
+            }
+          }
 
           const noteNodes = doc.getElementsByTagName('cbc:Note');
           for (let i = 0; i < noteNodes.length; i++) {
@@ -236,6 +278,9 @@ export class SunatSoapService {
           cdrXml,
           cdrZipBase64: content,
           isRetryableError: false,
+          recipientDocType,
+          recipientDocNumber,
+          issueDate,
         };
       }
 

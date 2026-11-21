@@ -328,6 +328,79 @@ export class DocumentsController {
   }
 
   /**
+   * BUSCAR COMPROBANTE POR SERIE Y NÚMERO
+   */
+  @Get('documents/by-series-number/:series/:number')
+  @ApiSecurity('api-key')
+  @UseGuards(ApiKeyGuard)
+  @ApiOperation({
+    summary: 'Buscar Comprobante por Serie y Número',
+    description: 'Recupera el comprobante y todos sus datos de detalle por serie y correlativo',
+  })
+  async getBySeriesAndNumber(
+    @CurrentCompany() company: Company,
+    @Param('series') series: string,
+    @Param('number') number: number,
+  ) {
+    const doc = await this.documentsService.findBySeriesAndNumber(company.id, series, Number(number));
+    if (!doc) {
+      throw new BadRequestException(`Comprobante ${series}-${number} no encontrado.`);
+    }
+    return doc;
+  }
+
+  /**
+   * VISUALIZACIÓN OFICIAL EN HTML POR SERIE Y NÚMERO
+   */
+  @Get('documents/by-series-number/:series/:number/html')
+  @ApiSecurity('api-key')
+  @UseGuards(ApiKeyGuard)
+  @ApiOperation({ summary: 'Visualizar representación impresa oficial en HTML por Serie y Número' })
+  @ApiQuery({ name: 'format', required: false, enum: ['A4', 'TICKET'] })
+  async viewHtmlBySeriesNumber(
+    @CurrentCompany() company: Company,
+    @Param('series') series: string,
+    @Param('number') number: number,
+    @Query('format') format: 'A4' | 'TICKET' = 'A4',
+    @Res() res: Response,
+  ) {
+    const html = await this.documentsService.generateHtmlPreviewBySeriesAndNumber(
+      company,
+      series,
+      Number(number),
+      format,
+    );
+    res.setHeader('Content-Type', 'text/html; charset=utf-8');
+    res.send(html);
+  }
+
+  /**
+   * CONSULTA EN VIVO DE VALIDEZ DE COMPROBANTE EN SUNAT (getStatusCdr / billConsultService)
+   * Verifica la existencia oficial, estado de aceptación del CDR y datos del comprobante.
+   */
+  @Post('documents/consultar-validez-sunat')
+  @ApiSecurity('api-key')
+  @UseGuards(ApiKeyGuard)
+  @ApiOperation({
+    summary: 'Consultar validez oficial de comprobante en tiempo real ante SUNAT',
+    description: 'Conecta directamente con el WebService billConsultService de SUNAT para verificar la existencia real, validez del CDR y datos del comprobante.',
+  })
+  async consultarValidezSunat(
+    @CurrentCompany() company: Company,
+    @Body() body: { docType: string; series: string; number: number },
+  ) {
+    if (!body.docType || !body.series || !body.number) {
+      throw new BadRequestException('Tipo de comprobante, serie y número son obligatorios para la consulta oficial en SUNAT');
+    }
+    return this.documentsService.consultarValidezSunat(
+      company,
+      body.docType,
+      body.series,
+      Number(body.number),
+    );
+  }
+
+  /**
    * ANULACIÓN FISCAL OFICIAL POR SERIE Y NÚMERO (Para Control Finanzas y ERPs)
    */
   @Post('documents/by-series-number/:series/:number/anular-fiscal')
