@@ -298,6 +298,16 @@ export class DocumentsService {
             totalIgv += lineIgv;
             subtotal += lineSubtotal;
             totalAmount += lineTotal;
+          } else if (affectation === '10_MYPE') {
+            if (!unitVal) unitVal = Number((price / 1.10).toFixed(4));
+            lineSubtotal = Number((unitVal * qty).toFixed(2));
+            lineTotal = Number((price * qty).toFixed(2));
+            lineIgv = Number((lineTotal - lineSubtotal).toFixed(2));
+
+            totalGravada += lineSubtotal;
+            totalIgv += lineIgv;
+            subtotal += lineSubtotal;
+            totalAmount += lineTotal;
           } else if (affectation === '20') {
             unitVal = price;
             lineSubtotal = Number((unitVal * qty).toFixed(2));
@@ -323,7 +333,7 @@ export class DocumentsService {
             unit_value: unitVal,
             unit_price: price,
             igv_affectation_type: affectation,
-            igv_percentage: affectation === '20' || affectation === '30' ? 0.0 : 18.0,
+            igv_percentage: affectation === '20' || affectation === '30' ? 0.0 : affectation === '10_MYPE' ? 10.0 : 18.0,
             igv_amount: affectation === '20' || affectation === '30' ? 0.0 : lineIgv,
             subtotal: lineSubtotal,
             total: lineTotal,
@@ -1038,6 +1048,16 @@ export class DocumentsService {
           totalIgv += lineIgv;
           subtotal += lineSubtotal;
           totalAmount += lineTotal;
+        } else if (affectation === '10_MYPE') {
+          if (!unitVal) unitVal = Number((price / 1.10).toFixed(4));
+          lineSubtotal = Number((unitVal * qty).toFixed(2));
+          lineTotal = Number((price * qty).toFixed(2));
+          lineIgv = Number((lineTotal - lineSubtotal).toFixed(2));
+
+          totalGravada += lineSubtotal;
+          totalIgv += lineIgv;
+          subtotal += lineSubtotal;
+          totalAmount += lineTotal;
         } else if (affectation === '20') {
           unitVal = price;
           lineSubtotal = Number((unitVal * qty).toFixed(2));
@@ -1064,8 +1084,8 @@ export class DocumentsService {
           unit_value: unitVal,
           unit_price: price,
           igv_affectation_type: affectation,
-          igv_percentage: 18.0,
-          igv_amount: lineIgv,
+          igv_percentage: affectation === '20' || affectation === '30' ? 0.0 : affectation === '10_MYPE' ? 10.0 : 18.0,
+          igv_amount: affectation === '20' || affectation === '30' ? 0.0 : lineIgv,
           subtotal: lineSubtotal,
           total: lineTotal,
         });
