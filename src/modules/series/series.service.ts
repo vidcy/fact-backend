@@ -1,4 +1,4 @@
-import { Injectable, Logger } from '@nestjs/common';
+import { Injectable, Logger, BadRequestException } from '@nestjs/common';
 import { PrismaService } from '../../prisma/prisma.service';
 import { Series } from '@prisma/client';
 
@@ -38,6 +38,26 @@ export class SeriesService {
     initialNumber: number = 0,
   ): Promise<Series> {
     const formattedSeries = seriesCode.toUpperCase().trim();
+    const requestedNumber = Number(initialNumber) || 0;
+
+    // VALIDACIÓN ESTRICTA ANTI-COLISIÓN FISCAL:
+    // Comprobar el mayor correlativo ya emitido y registrado en la tabla documents
+    const maxDocRows = await this.prisma.$queryRawUnsafe<any[]>(
+      `SELECT COALESCE(MAX(number), 0) as max_num FROM documents 
+        WHERE company_id = $1::uuid AND document_type = $2 AND series = $3`,
+      companyId,
+      documentType,
+      formattedSeries,
+    );
+
+    const maxDocNumber =
+      maxDocRows && maxDocRows.length > 0 ? parseInt(maxDocRows[0].max_num, 10) || 0 : 0;
+
+    if (maxDocNumber > 0 && requestedNumber < maxDocNumber) {
+      throw new BadRequestException(
+        `No se puede inicializar la serie ${formattedSeries} en ${requestedNumber}. Ya existen comprobantes registrados en el sistema hasta el número ${maxDocNumber}. El número inicial debe ser igual o superior a ${maxDocNumber} para prevenir duplicidades ante SUNAT.`,
+      );
+    }
 
     return this.prisma.series.upsert({
       where: {
@@ -48,14 +68,14 @@ export class SeriesService {
         },
       },
       update: {
-        current_number: initialNumber,
+        current_number: requestedNumber,
         is_active: true,
       },
       create: {
         company_id: companyId,
         document_type: documentType,
         series: formattedSeries,
-        current_number: initialNumber,
+        current_number: requestedNumber,
         is_active: true,
       },
     });

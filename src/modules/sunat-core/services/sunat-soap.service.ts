@@ -36,8 +36,8 @@ export class SunatSoapService {
     const rawUser = (company.sol_user || '').trim();
 
     // En ambiente BETA de SUNAT con credenciales de prueba,
-    // el usuario autenticador del WS-Security es 20000000001MODDATOS
-    if (company.env_mode === 'BETA' && (rawUser.toUpperCase().includes('MODDATOS') || !rawUser)) {
+    // los servidores de prueba de SUNAT únicamente aceptan 20000000001MODDATOS
+    if (company.env_mode === 'BETA') {
       return '20000000001MODDATOS';
     }
 
@@ -70,9 +70,8 @@ export class SunatSoapService {
     const endpoint = isGuia
       ? (company.env_mode === 'PRODUCCION' ? 'https://e-guiaremision.sunat.gob.pe/ol-ti-itemision-guia-gem/billService' : 'https://e-beta.sunat.gob.pe/ol-ti-itemision-otroscpe-gem-beta/billService')
       : (company.env_mode === 'PRODUCCION' ? this.prodEndpoint : this.betaEndpoint);
-    const isBetaModdatos = company.env_mode === 'BETA' && (!company.sol_user || company.sol_user.toUpperCase().includes('MODDATOS'));
     const solUsername = this.getSolUsername(company);
-    const solPassword = isBetaModdatos ? 'moddatos' : (company.sol_pass || '').trim();
+    const solPassword = company.env_mode === 'BETA' ? 'moddatos' : (company.sol_pass || '').trim();
 
     const soapEnvelope =
       '<soapenv:Envelope xmlns:soapenv="http://schemas.xmlsoap.org/soap/envelope/" xmlns:ser="http://service.sunat.gob.pe" xmlns:wsse="http://docs.oasis-open.org/wss/2004/01/oasis-200401-wss-wssecurity-secext-1.0.xsd">' +
@@ -338,7 +337,7 @@ export class SunatSoapService {
           if (appRespNodes.length > 0 && appRespNodes[0].textContent) {
             cdrZipBase64 = appRespNodes[0].textContent.trim();
           }
-        } catch (e) {}
+        } catch (e) { }
       }
 
       if (!cdrZipBase64) {
@@ -427,6 +426,9 @@ export class SunatSoapService {
       } else if (code.includes('1033') || message.includes('usuario o clave')) {
         message = 'SUNAT Error 1033: El Usuario Secundario SOL o la Clave SOL son incorrectos. Verifíquelos en la configuración de la empresa.';
         isRetryable = false;
+      } else if (code.includes('1038') || message.toLowerCase().includes('ticket no existe') || message.toLowerCase().includes('el ticket no existe')) {
+        message = 'SUNAT Error 1038: El comprobante o ticket no existe en los registros de SUNAT. Verifique que el comprobante haya sido emitido y recibido formalmente por SUNAT.';
+        isRetryable = false;
       } else if (code.includes('2119') || message.includes('no existe')) {
         message = 'SUNAT Error 2119: El comprobante que se modifica no existe en los registros de SUNAT. Verifique que la factura o boleta referenciada haya sido emitida y aceptada con anterioridad.';
         isRetryable = false;
@@ -475,12 +477,12 @@ export class SunatSoapService {
       document.document_type === '01'
         ? 'Factura'
         : document.document_type === '03'
-        ? 'Boleta'
-        : document.document_type === '07'
-        ? 'Nota de Crédito'
-        : document.document_type === '08'
-        ? 'Nota de Débito'
-        : 'Guía de Remisión';
+          ? 'Boleta'
+          : document.document_type === '07'
+            ? 'Nota de Crédito'
+            : document.document_type === '08'
+              ? 'Nota de Débito'
+              : 'Guía de Remisión';
     const description = `La ${docTypeName} número ${document.full_number} ha sido aceptada por SUNAT`;
 
     const cdrXml = `<?xml version="1.0" encoding="ISO-8859-1"?>

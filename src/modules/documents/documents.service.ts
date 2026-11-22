@@ -782,16 +782,23 @@ export class DocumentsService {
       };
     }
 
-    await this.prisma.$transaction(async (tx) => {
-      await tx.invoiceJob.deleteMany({ where: { document_id: doc.id } });
-      await tx.documentItem.deleteMany({ where: { document_id: doc.id } });
-      await tx.document.delete({ where: { id: doc.id } });
+    // PRESERVACIÓN ESTRICTA FISCAL: Nunca eliminar físicamente registros tributarios (exigencia SUNAT)
+    await this.prisma.document.update({
+      where: { id: doc.id },
+      data: {
+        status: DocumentStatus.ANULADO,
+        metadata: {
+          ...((doc.metadata as any) || {}),
+          anulado_at: new Date().toISOString(),
+          motivo_anulacion: 'Comprobante anulado formalmente por el sistema emisor (registro histórico preservado conforme a SUNAT)',
+        },
+      },
     });
 
-    this.logger.log(`[ELIMINACIÓN REMOTA] Comprobante ${series}-${number} eliminado sincronizadamente.`);
+    this.logger.log(`[ANULACIÓN FISCAL PRESERVADA] Comprobante ${series}-${number} marcado como ANULADO (registro histórico preservado).`);
     return {
       success: true,
-      message: `Comprobante ${series}-${number} eliminado exitosamente del sistema de facturación.`,
+      message: `Comprobante ${series}-${number} anulado exitosamente en el facturador electrónico (registro histórico preservado conforme a SUNAT).`,
     };
   }
 

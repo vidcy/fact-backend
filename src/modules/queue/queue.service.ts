@@ -280,13 +280,47 @@ export class QueueService implements OnModuleInit, OnModuleDestroy {
     const counts = rawCounts.map((c) => ({
       status: c.status,
       count: String(c._count.id),
+      _count: { id: c._count.id },
     }));
+
+    // Documentos pendientes en estado QUEUED o SENDING
+    const queuedDocs = await this.prisma.document.findMany({
+      where: {
+        status: { in: [DocumentStatus.QUEUED, DocumentStatus.SENDING] },
+      },
+      take: 20,
+      include: {
+        company: {
+          select: { ruc: true, razon_social: true },
+        },
+      },
+    });
 
     const recentJobs = await this.prisma.invoiceJob.findMany({
       orderBy: { created_at: 'desc' },
       take: 20,
+      include: {
+        document: {
+          select: {
+            id: true,
+            full_number: true,
+            document_type: true,
+            series: true,
+            number: true,
+            total_amount: true,
+            client_name: true,
+            status: true,
+          },
+        },
+        company: {
+          select: {
+            ruc: true,
+            razon_social: true,
+          },
+        },
+      },
     });
 
-    return { counts, recentJobs };
+    return { counts, recentJobs, queuedDocs, queuedDocsCount: queuedDocs.length };
   }
 }
