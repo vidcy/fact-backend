@@ -248,7 +248,7 @@ export class UblBuilderService {
     </cac:TaxSubtotal>`;
     }
 
-    // Exonerada (Amazonía / Apéndice I)
+    // Exonerada (Amazonía / Apéndice I) - Catálogo 05 SUNAT: 9997 / EXO / VAT
     if (Number(totalExonerada) > 0) {
       taxSubtotalsXml += `
     <cac:TaxSubtotal>
@@ -257,14 +257,14 @@ export class UblBuilderService {
       <cac:TaxCategory>
         <cac:TaxScheme>
           <cbc:ID schemeAgencyName="PE:SUNAT" schemeID="UN/ECE 5153" schemeName="Codigo de tributos">9997</cbc:ID>
-          <cbc:Name>EXONERADO</cbc:Name>
+          <cbc:Name>EXO</cbc:Name>
           <cbc:TaxTypeCode>VAT</cbc:TaxTypeCode>
         </cac:TaxScheme>
       </cac:TaxCategory>
     </cac:TaxSubtotal>`;
     }
 
-    // Inafecta
+    // Inafecta - Catálogo 05 SUNAT: 9998 / INA / FRE
     if (Number(totalInafecta) > 0) {
       taxSubtotalsXml += `
     <cac:TaxSubtotal>
@@ -273,7 +273,7 @@ export class UblBuilderService {
       <cac:TaxCategory>
         <cac:TaxScheme>
           <cbc:ID schemeAgencyName="PE:SUNAT" schemeID="UN/ECE 5153" schemeName="Codigo de tributos">9998</cbc:ID>
-          <cbc:Name>INAFECTO</cbc:Name>
+          <cbc:Name>INA</cbc:Name>
           <cbc:TaxTypeCode>FRE</cbc:TaxTypeCode>
         </cac:TaxScheme>
       </cac:TaxCategory>
@@ -320,12 +320,12 @@ export class UblBuilderService {
 
       if (isExonerated) {
         schemeId = '9997';
-        schemeName = 'EXONERADO';
+        schemeName = 'EXO';
         taxTypeCode = 'VAT';
         taxPercent = '0.00';
       } else if (isInafecto) {
         schemeId = '9998';
-        schemeName = 'INAFECTO';
+        schemeName = 'INA';
         taxTypeCode = 'FRE';
         taxPercent = '0.00';
       } else if (isExportacion) {
