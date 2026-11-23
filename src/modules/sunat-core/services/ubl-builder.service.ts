@@ -177,11 +177,11 @@ export class UblBuilderService {
       <cac:PartyLegalEntity>
         <cbc:RegistrationName><![CDATA[${company.razon_social}]]></cbc:RegistrationName>
         <cac:RegistrationAddress>
-          <cbc:ID schemeAgencyName="PE:INEI" schemeName="Ubigeos">${company.ubigeo}</cbc:ID>
+          ${company.ubigeo ? `<cbc:ID schemeAgencyName="PE:INEI" schemeName="Ubigeos">${company.ubigeo}</cbc:ID>` : ''}
           <cbc:AddressTypeCode listAgencyName="PE:SUNAT" listName="Establecimientos anexos">0000</cbc:AddressTypeCode>
-          <cac:AddressLine>
+          ${company.direccion ? `<cac:AddressLine>
             <cbc:Line><![CDATA[${company.direccion}]]></cbc:Line>
-          </cac:AddressLine>
+          </cac:AddressLine>` : ''}
         </cac:RegistrationAddress>
       </cac:PartyLegalEntity>
     </cac:Party>
