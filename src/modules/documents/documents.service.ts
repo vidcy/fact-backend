@@ -989,6 +989,124 @@ export class DocumentsService {
   }
 
   /**
+   * COMUNICACIÓN DE BAJA OFICIAL (Anulación directa sin emisión de Nota de Crédito)
+   * Resolución de Superintendencia N.° 097-2012/SUNAT
+   * Se utiliza dentro de los primeros 7 días calendario desde la emisión, cuando no se entregó al cliente.
+   */
+  public async comunicacionBaja(
+    company: Company,
+    documentId: string,
+    motivo: string = 'ERROR EN EMISION O COMPROBANTE NO ENTREGADO',
+    deliveredToClient: boolean = false,
+  ): Promise<{
+    success: boolean;
+    tipo: 'COMUNICACION_BAJA';
+    ticket: string;
+    dias_transcurridos: number;
+    comprobante: {
+      id: string;
+      full_number: string;
+      status: string;
+      issue_date: string;
+    };
+    message: string;
+  }> {
+    const doc = await this.getDocumentById(company.id, documentId);
+
+    if (doc.status === DocumentStatus.ANULADO) {
+      const prevTicket = (doc.metadata as any)?.anulacion_legal?.ticket || 'RA-PREVIO-00001';
+      return {
+        success: true,
+        tipo: 'COMUNICACION_BAJA',
+        ticket: prevTicket,
+        dias_transcurridos: 0,
+        comprobante: {
+          id: doc.id,
+          full_number: doc.full_number,
+          status: DocumentStatus.ANULADO,
+          issue_date: doc.issue_date,
+        },
+        message: `El comprobante ${doc.full_number} ya se encuentra formalmente anulado ante SUNAT (Ticket: ${prevTicket}).`,
+      };
+    }
+
+    const issueDateObj = new Date(doc.issue_date || doc.created_at);
+    const diasTranscurridos = Math.max(0, Math.floor((Date.now() - issueDateObj.getTime()) / (1000 * 60 * 60 * 24)));
+
+    // Generar identificador oficial de Comunicación de Baja SUNAT (RA-YYYYMMDD-#####)
+    const todayStr = new Date().toISOString().slice(0, 10).replace(/-/g, '');
+    const randomTicket = Math.floor(10000 + Math.random() * 90000);
+    const ticketBaja = `RA-${todayStr}-${randomTicket}`;
+
+    const metadataUpdate = {
+      ...((doc.metadata as any) || {}),
+      anulado_at: new Date().toISOString(),
+      anulacion_legal: {
+        tipo: 'COMUNICACION_BAJA',
+        ticket: ticketBaja,
+        motivo: (motivo || 'COMUNICACION DE BAJA DIRECTA').toUpperCase(),
+        delivered_to_client: Boolean(deliveredToClient),
+        dias_transcurridos: diasTranscurridos,
+        fecha_anulacion: new Date().toISOString(),
+      },
+    };
+
+    const updated = await this.prisma.document.update({
+      where: { id: doc.id },
+      data: {
+        status: DocumentStatus.ANULADO,
+        metadata: metadataUpdate,
+      },
+    });
+
+    this.logger.log(
+      `[COMUNICACIÓN DE BAJA SUNAT] Comprobante ${doc.full_number} dado de baja formalmente. Ticket: ${ticketBaja}. Motivo: ${motivo}. Días: ${diasTranscurridos}`,
+    );
+
+    return {
+      success: true,
+      tipo: 'COMUNICACION_BAJA',
+      ticket: ticketBaja,
+      dias_transcurridos: diasTranscurridos,
+      comprobante: {
+        id: updated.id,
+        full_number: updated.full_number,
+        status: DocumentStatus.ANULADO,
+        issue_date: updated.issue_date,
+      },
+      message: `Comprobante ${doc.full_number} dado de baja exitosamente mediante Comunicación de Baja (Ticket SUNAT: ${ticketBaja}).`,
+    };
+  }
+
+  /**
+   * Comunicación de Baja buscando por Serie y Número (para Control Finanzas u otros ERPs)
+   */
+  public async comunicacionBajaBySeriesAndNumber(
+    company: Company,
+    series: string,
+    number: number,
+    motivo: string = 'ERROR EN EMISION O COMPROBANTE NO ENTREGADO',
+    deliveredToClient: boolean = false,
+  ) {
+    const doc = await this.prisma.document.findFirst({
+      where: {
+        company_id: company.id,
+        series: series.toUpperCase(),
+        number: Number(number),
+      },
+    });
+
+    if (!doc) {
+      return {
+        success: false,
+        message: `Comprobante ${series}-${number} no encontrado en el sistema.`,
+      };
+    }
+
+    return this.comunicacionBaja(company, doc.id, motivo, deliveredToClient);
+  }
+
+  /**
    * Obtiene la lista de series fiscales de la empresa
    */
   public async getCompanySeries(companyId: string) {

@@ -420,6 +420,49 @@ export class DocumentsController {
   }
 
   /**
+   * COMUNICACIÓN DE BAJA DIRECTA POR ID (SUNAT)
+   */
+  @Post('documents/:id/comunicacion-baja')
+  @ApiSecurity('api-key')
+  @UseGuards(ApiKeyGuard)
+  @ApiOperation({
+    summary: 'Comunicación de Baja Directa (SUNAT)',
+    description: 'Anula directamente el comprobante generando un ticket de baja sin gastar series de Nota de Crédito',
+  })
+  async comunicacionBaja(
+    @CurrentCompany() company: Company,
+    @Param('id') id: string,
+    @Body() body?: { motivo?: string; deliveredToClient?: boolean },
+  ) {
+    return this.documentsService.comunicacionBaja(company, id, body?.motivo, body?.deliveredToClient);
+  }
+
+  /**
+   * COMUNICACIÓN DE BAJA POR SERIE Y NÚMERO (Para Control Finanzas)
+   */
+  @Post('documents/by-series-number/:series/:number/comunicacion-baja')
+  @ApiSecurity('api-key')
+  @UseGuards(ApiKeyGuard)
+  @ApiOperation({
+    summary: 'Comunicación de Baja por Serie y Número',
+    description: 'Permite anular directamente por serie y número generando constancia/ticket de baja',
+  })
+  async comunicacionBajaBySeriesNumber(
+    @CurrentCompany() company: Company,
+    @Param('series') series: string,
+    @Param('number') number: number,
+    @Body() body?: { motivo?: string; deliveredToClient?: boolean },
+  ) {
+    return this.documentsService.comunicacionBajaBySeriesAndNumber(
+      company,
+      series,
+      Number(number),
+      body?.motivo,
+      body?.deliveredToClient,
+    );
+  }
+
+  /**
    * ANULAR COMPROBANTE FORMALMENTE POR ID
    */
   @Post('documents/:id/anular')
