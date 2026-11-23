@@ -305,6 +305,51 @@ export class DocumentsController {
     res.send(html);
   }
 
+  @Get('documents/by-series-number/:series/:number/html')
+  @ApiOperation({ summary: 'Visualizar representación impresa oficial en HTML por Serie y Número' })
+  @ApiQuery({ name: 'format', required: false, enum: ['A4', 'TICKET'] })
+  async viewHtmlBySeriesNumber(
+    @Param('series') series: string,
+    @Param('number') number: number,
+    @Query('format') format: 'A4' | 'TICKET' = 'A4',
+    @Res() res: Response,
+  ) {
+    const doc = await this.documentsService.findDocumentBySeriesAndNumberPublic(series, Number(number));
+    const html = await this.documentsService.generateHtmlPreview(doc.company, doc.id, format);
+    res.setHeader('Content-Type', 'text/html; charset=utf-8');
+    res.send(html);
+  }
+
+  @Get('documents/by-series-number/:series/:number/xml')
+  @ApiOperation({ summary: 'Descargar XML UBL 2.1 por Serie y Número' })
+  @Header('Content-Type', 'application/xml')
+  async downloadXmlBySeriesNumber(
+    @Param('series') series: string,
+    @Param('number') number: number,
+    @Res() res: Response,
+  ) {
+    const doc = await this.documentsService.findDocumentBySeriesAndNumberPublic(series, Number(number));
+    const company = doc.company;
+    const fileName = `${company?.ruc || 'FACT'}-${doc.document_type}-${doc.series}-${String(doc.number).padStart(8, '0')}.xml`;
+    res.setHeader('Content-Disposition', `attachment; filename="${fileName}"`);
+    res.send(doc.xml_content);
+  }
+
+  @Get('documents/by-series-number/:series/:number/cdr')
+  @ApiOperation({ summary: 'Descargar CDR XML por Serie y Número' })
+  @Header('Content-Type', 'application/xml')
+  async downloadCdrBySeriesNumber(
+    @Param('series') series: string,
+    @Param('number') number: number,
+    @Res() res: Response,
+  ) {
+    const doc = await this.documentsService.findDocumentBySeriesAndNumberPublic(series, Number(number));
+    const company = doc.company;
+    const fileName = `R-${company?.ruc || 'FACT'}-${doc.document_type}-${doc.series}-${String(doc.number).padStart(8, '0')}.xml`;
+    res.setHeader('Content-Disposition', `attachment; filename="${fileName}"`);
+    res.send(doc.cdr_xml || '<error>No hay CDR disponible para este comprobante</error>');
+  }
+
   @Post('documents/:id/retry')
   @ApiSecurity('api-key')
   @UseGuards(ApiKeyGuard)
@@ -417,28 +462,6 @@ export class DocumentsController {
   /**
    * VISUALIZACIÓN OFICIAL EN HTML POR SERIE Y NÚMERO
    */
-  @Get('documents/by-series-number/:series/:number/html')
-  @ApiSecurity('api-key')
-  @UseGuards(ApiKeyGuard)
-  @ApiOperation({ summary: 'Visualizar representación impresa oficial en HTML por Serie y Número' })
-  @ApiQuery({ name: 'format', required: false, enum: ['A4', 'TICKET'] })
-  async viewHtmlBySeriesNumber(
-    @CurrentCompany() company: Company,
-    @Param('series') series: string,
-    @Param('number') number: number,
-    @Query('format') format: 'A4' | 'TICKET' = 'A4',
-    @Res() res: Response,
-  ) {
-    const html = await this.documentsService.generateHtmlPreviewBySeriesAndNumber(
-      company,
-      series,
-      Number(number),
-      format,
-    );
-    res.setHeader('Content-Type', 'text/html; charset=utf-8');
-    res.send(html);
-  }
-
   /**
    * CONSULTA EN VIVO DE VALIDEZ DE COMPROBANTE EN SUNAT (getStatusCdr / billConsultService)
    * Verifica la existencia oficial, estado de aceptación del CDR y datos del comprobante.

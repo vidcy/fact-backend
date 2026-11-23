@@ -571,12 +571,50 @@ export class DocumentsService {
    * Obtener un comprobante por ID público (acceso directo para descarga de XML, CDR o visualización)
    */
   public async getDocumentByIdPublic(id: string): Promise<Document & { items: DocumentItem[]; company?: Company }> {
-    const doc = await this.prisma.document.findUnique({
-      where: { id },
+    let doc: (Document & { items: DocumentItem[]; company?: Company }) | null = null;
+    const isUuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(id);
+    if (isUuid) {
+      doc = await this.prisma.document.findUnique({
+        where: { id },
+        include: { items: true, company: true },
+      });
+    }
+    if (!doc && id.includes('-')) {
+      const parts = id.split('-');
+      if (parts.length === 2 && !isNaN(Number(parts[1]))) {
+        doc = await this.prisma.document.findFirst({
+          where: { series: parts[0].trim().toUpperCase(), number: Number(parts[1]) },
+          include: { items: true, company: true },
+        });
+      }
+    }
+    if (!doc) {
+      doc = await this.prisma.document.findFirst({
+        where: { idempotency_key: id },
+        include: { items: true, company: true },
+      });
+    }
+    if (!doc) {
+      throw new NotFoundException(`Comprobante con identificador ${id} no encontrado en CCOFACT.`);
+    }
+    return doc;
+  }
+
+  /**
+   * Obtener comprobante público por serie y número correlativo
+   */
+  public async findDocumentBySeriesAndNumberPublic(
+    series: string,
+    number: number,
+  ): Promise<Document & { items: DocumentItem[]; company?: Company }> {
+    const cleanSeries = series.trim().toUpperCase();
+    const cleanNumber = Number(number);
+    const doc = await this.prisma.document.findFirst({
+      where: { series: cleanSeries, number: cleanNumber },
       include: { items: true, company: true },
     });
     if (!doc) {
-      throw new NotFoundException(`Comprobante con id ${id} no encontrado`);
+      throw new NotFoundException(`Comprobante ${cleanSeries}-${String(cleanNumber).padStart(8, '0')} no encontrado.`);
     }
     return doc;
   }
@@ -1756,9 +1794,15 @@ export class DocumentsService {
   ) {
     const originalDoc = await this.getDocumentById(company.id, id);
 
-    if (originalDoc.status !== DocumentStatus.ACCEPTED) {
+    if (originalDoc.status === DocumentStatus.ANULADO) {
       throw new BadRequestException(
-        `Solo es posible emitir Notas sobre comprobantes ACEPTADOS oficialmente por SUNAT (CDR = 0).`,
+        `El comprobante ${originalDoc.full_number} ya se encuentra ANULADO formalmente ante SUNAT. No es posible emitir nuevas notas sobre un comprobante anulado.`,
+      );
+    }
+
+    if (originalDoc.status !== DocumentStatus.ACCEPTED && originalDoc.status !== DocumentStatus.ACCEPTED_OBSERVED) {
+      throw new BadRequestException(
+        `Solo es posible emitir Notas sobre comprobantes ACEPTADOS oficialmente por SUNAT (CDR = 0). Estado actual: ${originalDoc.status}.`,
       );
     }
 
@@ -1768,16 +1812,45 @@ export class DocumentsService {
       ? (isFactura ? 'FC01' : 'BC01')
       : (isFactura ? 'FD01' : 'BD01');
 
-    const noteAmount = dto.amount || Number(originalDoc.total_amount);
+    // 1. Control riguroso de notas previas y cálculo de saldo tributario real en base de datos
+    const existingNotes = await this.prisma.document.findMany({
+      where: {
+        company_id: company.id,
+        ref_series: originalDoc.series,
+        ref_number: originalDoc.number,
+        status: { in: [DocumentStatus.ACCEPTED, DocumentStatus.ACCEPTED_OBSERVED] },
+      },
+      select: { document_type: true, total_amount: true, full_number: true, ref_reason_code: true },
+    });
 
-    // Control de saldos para descuentos y devoluciones
-    if (isCredit && ['04', '05', '07', '09'].includes(dto.reason_code)) {
-      const prevNotes = ((originalDoc.metadata as any)?.notas_credito) || [];
-      const totalPrevNotes = prevNotes.reduce((sum: number, n: any) => sum + (Number(n.monto) || 0), 0);
-      const remainingBalance = Number(originalDoc.total_amount) - totalPrevNotes;
-      if (noteAmount > remainingBalance) {
+    const totalPrevCreditNotes = existingNotes
+      .filter((n) => n.document_type === '07')
+      .reduce((sum, n) => sum + Number(n.total_amount || 0), 0);
+
+    const totalPrevDebitNotes = existingNotes
+      .filter((n) => n.document_type === '08')
+      .reduce((sum, n) => sum + Number(n.total_amount || 0), 0);
+
+    const remainingBalance = Number(
+      (Number(originalDoc.total_amount) - totalPrevCreditNotes + totalPrevDebitNotes).toFixed(2),
+    );
+
+    const hasFullAnnulmentNote = existingNotes.some(
+      (n) => n.document_type === '07' && ['01', '02', '06'].includes(n.ref_reason_code || ''),
+    );
+
+    if (isCredit && (hasFullAnnulmentNote || remainingBalance <= 0.001)) {
+      throw new BadRequestException(
+        `El comprobante ${originalDoc.full_number} ya fue anulado en su totalidad mediante Nota de Crédito previa o su saldo tributario es S/ 0.00. No se pueden emitir más notas de crédito.`,
+      );
+    }
+
+    const noteAmount = dto.amount !== undefined && dto.amount !== null ? Number(dto.amount) : remainingBalance;
+
+    if (isCredit) {
+      if (noteAmount > remainingBalance + 0.005) {
         throw new BadRequestException(
-          `El importe solicitado (S/ ${noteAmount.toFixed(2)}) supera el saldo disponible (S/ ${remainingBalance.toFixed(2)}) de ${originalDoc.full_number}.`,
+          `El importe solicitado (S/ ${noteAmount.toFixed(2)}) supera el saldo disponible (S/ ${remainingBalance.toFixed(2)}) del comprobante ${originalDoc.full_number}.`,
         );
       }
     }
@@ -1811,12 +1884,33 @@ export class DocumentsService {
 
     const noteDoc = await this.createDocument(company, noteDto);
 
-    if (isCredit && (dto.reason_code === '01' || dto.reason_code === '02' || dto.reason_code === '06')) {
-      await this.prisma.document.update({
-        where: { id: originalDoc.id },
-        data: { status: DocumentStatus.ANULADO },
-      });
-    }
+    // Actualizar estado del original si la nota de crédito extingue el saldo o es de anulación total
+    const willAnul = isCredit && (['01', '02', '06'].includes(dto.reason_code) || noteAmount >= remainingBalance - 0.005);
+    const newRemainingBalance = isCredit
+      ? Number(Math.max(0, remainingBalance - noteAmount).toFixed(2))
+      : Number((remainingBalance + noteAmount).toFixed(2));
+
+    const prevNotesMeta = ((originalDoc.metadata as any)?.notas || []);
+    prevNotesMeta.push({
+      full_number: noteDoc.full_number,
+      tipo: dto.note_type,
+      motivo: dto.reason_code,
+      descripcion: dto.reason_description,
+      monto: noteAmount,
+      fecha: new Date().toISOString(),
+    });
+
+    await this.prisma.document.update({
+      where: { id: originalDoc.id },
+      data: {
+        status: willAnul ? DocumentStatus.ANULADO : originalDoc.status,
+        metadata: {
+          ...((originalDoc.metadata as object) || {}),
+          notas: prevNotesMeta,
+          saldo_disponible: newRemainingBalance,
+        },
+      },
+    });
 
     const baseUrl = `${process.env.APP_URL || `http://localhost:${process.env.PORT || 4001}`}`;
 
