@@ -212,6 +212,38 @@ export class CcofactDocumentDto {
   serie: string;
 
   @ApiPropertyOptional({
+    example: '2026-11-22',
+    description: 'Fecha de emisión en formato YYYY-MM-DD (hora de Perú)',
+  })
+  @IsOptional()
+  @IsString()
+  fecha_emision?: string;
+
+  @ApiPropertyOptional({
+    example: '21:30:00',
+    description: 'Hora de emisión en formato HH:mm:ss (hora de Perú)',
+  })
+  @IsOptional()
+  @IsString()
+  hora_emision?: string;
+
+  @ApiPropertyOptional({
+    example: '2026-11-22',
+    description: 'Alias de fecha_emision en formato YYYY-MM-DD',
+  })
+  @IsOptional()
+  @IsString()
+  issue_date?: string;
+
+  @ApiPropertyOptional({
+    example: '21:30:00',
+    description: 'Alias de hora_emision en formato HH:mm:ss',
+  })
+  @IsOptional()
+  @IsString()
+  issue_time?: string;
+
+  @ApiPropertyOptional({
     example: 'PEN',
     default: 'PEN',
     description: 'Moneda (Catálogo N° 02 SUNAT): PEN = Soles Peruanos, USD = Dólares Americanos, EUR = Euros',

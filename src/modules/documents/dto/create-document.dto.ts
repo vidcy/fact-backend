@@ -53,6 +53,16 @@ export class CreateDocumentDto {
   @IsString()
   series: string;
 
+  @ApiPropertyOptional({ example: '2026-11-22', description: 'Fecha de emisión en formato YYYY-MM-DD (hora de Perú)' })
+  @IsOptional()
+  @IsString()
+  issue_date?: string;
+
+  @ApiPropertyOptional({ example: '21:30:00', description: 'Hora de emisión en formato HH:mm:ss (hora de Perú)' })
+  @IsOptional()
+  @IsString()
+  issue_time?: string;
+
   @ApiPropertyOptional({ example: 'PEN', default: 'PEN' })
   @IsOptional()
   @IsIn(['PEN', 'USD'])

@@ -104,6 +104,8 @@ export class DocumentsService {
       idempotency_key: dto.idempotency_key,
       document_type: dto.tipo_comprobante,
       series: dto.serie.toUpperCase(),
+      issue_date: dto.fecha_emision || dto.issue_date,
+      issue_time: dto.hora_emision || dto.issue_time,
       currency: dto.moneda || 'PEN',
       payment_type: dto.forma_pago || 'Contado',
       client_doc_type: clientDocType,
@@ -253,8 +255,21 @@ export class DocumentsService {
 
         const fullNumber = `${dto.series.toUpperCase()}-${String(nextNumber).padStart(8, '0')}`;
         const now = new Date();
-        const issueDate = now.toISOString().split('T')[0];
-        const issueTime = now.toTimeString().split(' ')[0];
+        const peruDate = new Intl.DateTimeFormat('en-CA', {
+          timeZone: 'America/Lima',
+          year: 'numeric',
+          month: '2-digit',
+          day: '2-digit',
+        }).format(now);
+        const peruTime = new Intl.DateTimeFormat('en-GB', {
+          timeZone: 'America/Lima',
+          hour: '2-digit',
+          minute: '2-digit',
+          second: '2-digit',
+          hour12: false,
+        }).format(now);
+        const issueDate = dto.issue_date || peruDate;
+        const issueTime = dto.issue_time || peruTime;
 
         let totalGravada = 0;
         let totalExonerada = 0;
@@ -1345,7 +1360,14 @@ export class DocumentsService {
 
       return {
         amount: Number(first.amount) || 0,
-        date: first.date ? new Date(first.date).toISOString().split('T')[0] : undefined,
+        date: first.date
+          ? new Intl.DateTimeFormat('en-CA', {
+              timeZone: 'America/Lima',
+              year: 'numeric',
+              month: '2-digit',
+              day: '2-digit',
+            }).format(new Date(first.date))
+          : undefined,
         items: items.length > 0 ? items : [
           {
             description: `Operación comercial ${series}-${number}`,
