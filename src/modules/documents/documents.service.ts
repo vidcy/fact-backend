@@ -1903,15 +1903,24 @@ export class DocumentsService {
       client_address: originalDoc.client_address || undefined,
       client_email: originalDoc.client_email || undefined,
       currency: originalDoc.currency,
-      items: dto.items && dto.items.length > 0 ? dto.items : [
-        {
-          code: 'NOTA',
-          description: `${dto.reason_description} - REF ${originalDoc.full_number}`,
-          quantity: 1,
-          unit_price: noteAmount,
-          igv_affectation_type: originalDoc.items[0]?.igv_affectation_type || '10',
-        },
-      ],
+      items: (dto.items && dto.items.length > 0)
+        ? dto.items.map((it, idx) => ({
+            code: it.code || `ITEM-${idx + 1}`,
+            description: it.description || (it as any).name || `${dto.reason_description} - REF ${originalDoc.full_number}`,
+            quantity: Number(it.quantity) || 1,
+            unit_price: Number(it.unit_price !== undefined ? it.unit_price : (it as any).price) || 0,
+            unit_measure: it.unit_measure || 'NIU',
+            igv_affectation_type: it.igv_affectation_type || originalDoc.items[0]?.igv_affectation_type || '10',
+          }))
+        : [
+            {
+              code: 'NOTA',
+              description: `${dto.reason_description} - REF ${originalDoc.full_number}`,
+              quantity: 1,
+              unit_price: noteAmount,
+              igv_affectation_type: originalDoc.items[0]?.igv_affectation_type || '10',
+            },
+          ],
       send_now: true,
     };
 
