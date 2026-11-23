@@ -1,5 +1,5 @@
 import { IsString, IsNotEmpty, IsArray, ValidateNested, IsOptional, IsNumber } from 'class-validator';
-import { Type } from 'class-transformer';
+import { Type, Transform } from 'class-transformer';
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 import { DocumentItemDto } from './create-document.dto';
 
@@ -68,6 +68,7 @@ export class ManualNoteDto {
   reason_code: string;
 
   @ApiProperty({ example: 'ANULACION DE LA OPERACION' })
+  @Transform(({ value, obj }) => value || obj.reason_text || obj.reasonText || 'ANULACION DE LA OPERACION')
   @IsNotEmpty()
   @IsString()
   reason_description: string;
@@ -80,6 +81,20 @@ export class ManualNoteDto {
   @ApiPropertyOptional({ type: [DocumentItemDto] })
   @IsOptional()
   @IsArray()
+  @Transform(({ value }) => {
+    if (!Array.isArray(value)) return undefined;
+    const sanitized = value
+      .filter((it: any) => it && (Number(it.quantity || it.returnQty || 0) > 0) && (Number(it.unit_price || it.price || 0) > 0))
+      .map((it: any) => ({
+        code: it.code || 'PROD',
+        description: it.description || it.name || 'Detalle del ítem',
+        quantity: Number(it.quantity || it.returnQty || 1),
+        unit_price: Number(it.unit_price || it.price || 0),
+        unit_measure: it.unit_measure || it.unit || 'NIU',
+        igv_affectation_type: it.igv_affectation_type || it.igvAffectation || '10',
+      }));
+    return sanitized.length > 0 ? sanitized : undefined;
+  })
   @ValidateNested({ each: true })
   @Type(() => DocumentItemDto)
   items?: DocumentItemDto[];
