@@ -222,7 +222,15 @@ export class DocumentsService {
         include: { items: true },
       });
       if (existing) {
-        this.logger.log(`[IDEMPOTENCIA] Solicitud repetida con clave ${dto.idempotency_key}. Retornando comprobante existente ${existing.full_number}.`);
+        if (existing.status === DocumentStatus.ACCEPTED || existing.status === DocumentStatus.ACCEPTED_OBSERVED) {
+          this.logger.log(`[IDEMPOTENCIA] Solicitud repetida con clave ${dto.idempotency_key}. Retornando comprobante existente aceptado ${existing.full_number}.`);
+          return existing;
+        }
+        // Si ya existía pero no fue aceptado (REJECTED, ERROR, QUEUED) y send_now es true, reintentar transmisión formal con SUNAT
+        if (dto.send_now !== false) {
+          this.logger.log(`[IDEMPOTENCIA] Documento existente ${existing.full_number} en estado ${existing.status}. Reintentando transmisión formal a SUNAT...`);
+          return this.retryDocument(company, existing.id);
+        }
         return existing;
       }
     }
@@ -694,15 +702,40 @@ export class DocumentsService {
       data: { status: DocumentStatus.SENDING },
     });
 
+    // Asegurar que el XML contenga la nomenclatura oficial SUNAT Catálogo 05 antes de enviar
+    let xmlToSend = doc.xml_content || '';
+    if (!xmlToSend || xmlToSend.includes('<cbc:Name>EXONERADO</cbc:Name>')) {
+      try {
+        const rawXml = this.ublBuilder.buildInvoiceXml(doc, company);
+        const signResult = this.xmlSigner.signXml(
+          rawXml,
+          company.certificate_pfx_base64 || '',
+          company.certificate_password || '',
+        );
+        xmlToSend = signResult.signedXml;
+        await this.prisma.document.update({
+          where: { id: doc.id },
+          data: { xml_content: xmlToSend, xml_digest_value: signResult.digestValue },
+        });
+        doc.xml_content = xmlToSend;
+        doc.xml_digest_value = signResult.digestValue;
+      } catch (xmlErr: any) {
+        this.logger.warn(`Could not rebuild XML on retry: ${xmlErr.message}`);
+        if (xmlToSend.includes('<cbc:Name>EXONERADO</cbc:Name>')) {
+          xmlToSend = xmlToSend.replace(/<cbc:Name>EXONERADO<\/cbc:Name>/g, '<cbc:Name>EXO</cbc:Name>');
+        }
+      }
+    }
+
     let sunatResult: SunatResponse;
     if (doc.sunat_response_code?.includes('0140') || doc.sunat_description?.includes('0140')) {
       this.logger.log(`[RETRY] Comprobante ${doc.full_number} en estado 0140 (En Proceso). Consultando CDR con getStatusCdr...`);
       sunatResult = await this.sunatSoap.getStatusCdr(company, doc.document_type, doc.series, doc.number);
       if (!sunatResult.success && !sunatResult.cdrZipBase64 && !sunatResult.responseCode?.includes('0140')) {
-        sunatResult = await this.sunatSoap.sendBill(doc, company, doc.xml_content || '');
+        sunatResult = await this.sunatSoap.sendBill(doc, company, xmlToSend);
       }
     } else {
-      sunatResult = await this.sunatSoap.sendBill(doc, company, doc.xml_content || '');
+      sunatResult = await this.sunatSoap.sendBill(doc, company, xmlToSend);
       if (sunatResult.responseCode?.includes('0140') || sunatResult.description?.includes('0140')) {
         this.logger.log(`[RETRY] SUNAT retornó 0140 para ${doc.full_number}. Verificando si el CDR ya fue emitido...`);
         const cdrCheck = await this.sunatSoap.getStatusCdr(company, doc.document_type, doc.series, doc.number);
