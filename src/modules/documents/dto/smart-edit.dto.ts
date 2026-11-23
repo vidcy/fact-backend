@@ -10,16 +10,19 @@ export class SmartEditDto {
   issue_date?: string;
 
   @ApiProperty({ example: '6', description: '6 RUC, 1 DNI, 0 Sin documento' })
+  @Transform(({ value }) => (value && String(value).trim()) || '0')
   @IsNotEmpty()
   @IsString()
   client_doc_type: string;
 
   @ApiProperty({ example: '20601234567' })
+  @Transform(({ value }) => (value && String(value).trim()) || '00000000')
   @IsNotEmpty()
   @IsString()
   client_doc_number: string;
 
   @ApiProperty({ example: 'EMPRESA CLIENTE S.A.C.' })
+  @Transform(({ value }) => (value && String(value).trim()) || 'CLIENTES VARIOS')
   @IsNotEmpty()
   @IsString()
   client_name: string;
@@ -46,6 +49,18 @@ export class SmartEditDto {
 
   @ApiProperty({ type: [DocumentItemDto] })
   @IsArray()
+  @Transform(({ value }) => {
+    if (!Array.isArray(value)) return [];
+    return value.map((it: any) => ({
+      ...it,
+      code: it.code || 'PROD',
+      description: String(it.description || it.name || 'Detalle del ítem').trim(),
+      quantity: Number(it.quantity || 1),
+      unit_price: Number(it.unit_price !== undefined ? it.unit_price : (it.price ?? it.salePrice ?? 0)),
+      unit_measure: it.unit_measure || it.unit || 'NIU',
+      igv_affectation_type: it.igv_affectation_type || it.igvAffectation || '10',
+    }));
+  })
   @ValidateNested({ each: true })
   @Type(() => DocumentItemDto)
   items: DocumentItemDto[];

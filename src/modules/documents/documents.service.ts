@@ -1672,6 +1672,10 @@ export class DocumentsService {
       const reasonDesc = isDevolucion ? 'DEVOLUCION POR ITEM' : 'DESCUENTO POR ITEM';
 
       const noteSeries = originalDoc.document_type === '01' ? 'FC01' : 'BC01';
+      const defaultAffectation =
+        originalDoc.items[0]?.igv_affectation_type ||
+        (Number(originalDoc.total_exonerada || 0) > 0 ? '20' : Number(originalDoc.total_inafecta || 0) > 0 ? '30' : '10');
+
       const ncDto: CreateDocumentDto = {
         idempotency_key: `nc_diff_${originalDoc.id}_${Date.now()}`,
         document_type: '07',
@@ -1693,7 +1697,7 @@ export class DocumentsService {
             description: `${reasonDesc} S/ ${absDiff.toFixed(2)} A ${originalDoc.full_number}`,
             quantity: 1,
             unit_price: absDiff,
-            igv_affectation_type: originalDoc.items[0]?.igv_affectation_type || '10',
+            igv_affectation_type: defaultAffectation,
           },
         ],
         send_now: true,
@@ -1733,6 +1737,10 @@ export class DocumentsService {
     // CASO C: Subió el importe -> Nota de Débito por la diferencia sumada
     // =========================================================================
     if (diffAmount > 0) {
+      const defaultAffectation =
+        originalDoc.items[0]?.igv_affectation_type ||
+        (Number(originalDoc.total_exonerada || 0) > 0 ? '20' : Number(originalDoc.total_inafecta || 0) > 0 ? '30' : '10');
+
       const noteSeries = originalDoc.document_type === '01' ? 'FD01' : 'BD01';
       const ndDto: CreateDocumentDto = {
         idempotency_key: `nd_diff_${originalDoc.id}_${Date.now()}`,
@@ -1755,7 +1763,7 @@ export class DocumentsService {
             description: `AUMENTO EN EL VALOR DE S/ ${diffAmount.toFixed(2)} A ${originalDoc.full_number}`,
             quantity: 1,
             unit_price: diffAmount,
-            igv_affectation_type: originalDoc.items[0]?.igv_affectation_type || '10',
+            igv_affectation_type: defaultAffectation,
           },
         ],
         send_now: true,

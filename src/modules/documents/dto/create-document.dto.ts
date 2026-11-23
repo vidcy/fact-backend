@@ -1,5 +1,5 @@
 import { IsString, IsNotEmpty, IsArray, ValidateNested, IsOptional, IsNumber, IsBoolean, IsIn } from 'class-validator';
-import { Type } from 'class-transformer';
+import { Type, Transform } from 'class-transformer';
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 
 export class DocumentItemDto {
@@ -9,6 +9,7 @@ export class DocumentItemDto {
   code?: string;
 
   @ApiProperty({ example: 'Desarrollo de Software a Medida' })
+  @Transform(({ value, obj }) => (value || obj.name || 'Detalle del producto').trim())
   @IsNotEmpty()
   @IsString()
   description: string;
@@ -19,10 +20,12 @@ export class DocumentItemDto {
   unit_measure?: string;
 
   @ApiProperty({ example: 1 })
+  @Transform(({ value, obj }) => Number(value !== undefined ? value : (obj.qty ?? 1)))
   @IsNumber()
   quantity: number;
 
   @ApiProperty({ example: 100.0, description: 'Precio unitario con impuestos incluidos' })
+  @Transform(({ value, obj }) => Number(value !== undefined ? value : (obj.price ?? obj.salePrice ?? 0)))
   @IsNumber()
   unit_price: number;
 
