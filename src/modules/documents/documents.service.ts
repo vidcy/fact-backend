@@ -9,6 +9,7 @@ import { Company, Document, DocumentItem } from '@prisma/client';
 import { DocumentStatus, JobType, JobStatus } from '../../common/constants/system.enums';
 import { CreateDocumentDto } from './dto/create-document.dto';
 import { CcofactDocumentDto } from './dto/ccofact-document.dto';
+import { SmartEditDto, ManualNoteDto } from './dto/smart-edit.dto';
 import { SeriesService } from '../series/series.service';
 import { UblBuilderService } from '../sunat-core/services/ubl-builder.service';
 import { XmlSignerService } from '../sunat-core/services/xml-signer.service';
@@ -1310,6 +1311,544 @@ export class DocumentsService {
       nuevo_comprobante: emisionResult.comprobante,
       recursos_nuevo: emisionResult.recursos,
     };
+  }
+
+  /**
+   * MOTOR DE ANÁLISIS DE DIFERENCIAS (DIFF ENGINE) - BOTÓN "EDITAR" INTELIGENTE
+   * Cumple al 100% las 4 casuísticas tributarias oficiales de SUNAT UBL 2.1:
+   * - Caso A: Cambió cabecera (Fecha, RUC/DNI, Razón Social, Moneda, Pago) -> NC 100% (01/02) + Nuevo Comprobante
+   * - Caso B: Bajó importe / devolvió cantidad -> NC por la diferencia (07/05)
+   * - Caso C: Subió importe / agregó ítems -> ND por la diferencia (02)
+   * - Caso D: Solo descripción (mismo importe/cliente, <= 10 días hábiles) -> NC 0.00 (03)
+   */
+  public async smartEditDocument(
+    company: Company,
+    id: string,
+    dto: SmartEditDto,
+  ) {
+    const originalDoc = await this.getDocumentById(company.id, id);
+
+    // 1. Validar CDR: solo comprobantes ACEPTADOS pueden ser modificados
+    if (originalDoc.status !== DocumentStatus.ACCEPTED) {
+      throw new BadRequestException(
+        `Solo es posible editar comprobantes aceptados oficialmente por SUNAT (CDR = 0). Estado actual de ${originalDoc.full_number}: ${originalDoc.status}.`,
+      );
+    }
+
+    // 2. Validar Fechas según normativa SUNAT
+    const isFactura = originalDoc.document_type === '01';
+    const maxDaysBack = isFactura ? 2 : 5;
+    const now = new Date();
+    const peruToday = new Intl.DateTimeFormat('en-CA', {
+      timeZone: 'America/Lima',
+      year: 'numeric',
+      month: '2-digit',
+      day: '2-digit',
+    }).format(now);
+
+    const minDateLimit = new Intl.DateTimeFormat('en-CA', {
+      timeZone: 'America/Lima',
+      year: 'numeric',
+      month: '2-digit',
+      day: '2-digit',
+    }).format(new Date(now.getTime() - maxDaysBack * 86400000));
+
+    const targetIssueDate = dto.issue_date || originalDoc.issue_date;
+
+    if (targetIssueDate > peruToday) {
+      throw new BadRequestException(
+        `SUNAT rechaza fechas futuras. La fecha de emisión (${targetIssueDate}) no puede ser posterior a hoy (${peruToday}).`,
+      );
+    }
+
+    if (targetIssueDate < minDateLimit) {
+      throw new BadRequestException(
+        `Para ${isFactura ? 'Facturas' : 'Boletas'}, SUNAT permite un retroceso máximo de ${maxDaysBack} días calendario (${minDateLimit}). La fecha seleccionada (${targetIssueDate}) excede el plazo legal.`,
+      );
+    }
+
+    // 3. Diff Engine: Comparar Original vs Editado
+    const originalTotal = Number(originalDoc.total_amount);
+    const newTotal = Number(
+      dto.items.reduce((acc, it) => acc + (Number(it.quantity) || 0) * (Number(it.unit_price) || 0), 0).toFixed(2),
+    );
+    const diffAmount = Number((newTotal - originalTotal).toFixed(2));
+
+    const dateChanged = originalDoc.issue_date !== targetIssueDate;
+    const clientDocChanged =
+      (originalDoc.client_doc_number || '').trim() !== (dto.client_doc_number || '').trim() ||
+      (originalDoc.client_doc_type || '').trim() !== (dto.client_doc_type || '').trim();
+    const clientNameChanged =
+      (originalDoc.client_name || '').trim().toUpperCase() !== (dto.client_name || '').trim().toUpperCase();
+    const currencyChanged = (originalDoc.currency || 'PEN') !== (dto.currency || 'PEN');
+    const paymentTypeChanged = (originalDoc.payment_type || 'Contado') !== (dto.payment_type || 'Contado');
+
+    const headerChanged = dateChanged || clientDocChanged || clientNameChanged || currencyChanged || paymentTypeChanged;
+
+    // Calcular días hábiles para motivo 03
+    const [y, m, d] = originalDoc.issue_date.split('-').map(Number);
+    const origDate = new Date(y, m - 1, d);
+    let workingDays = 0;
+    const curDate = new Date(origDate);
+    while (curDate < now) {
+      curDate.setDate(curDate.getDate() + 1);
+      const dow = curDate.getDay();
+      if (dow !== 0 && dow !== 6) workingDays++;
+    }
+    const isWithin10WorkingDays = workingDays <= 10;
+
+    const sameItemCount = originalDoc.items.length === dto.items.length;
+    const sameQuantitiesAndPrices =
+      sameItemCount &&
+      originalDoc.items.every((it, i) => {
+        const ed = dto.items[i];
+        return (
+          ed &&
+          Number(it.quantity) === Number(ed.quantity) &&
+          Number(it.unit_price) === Number(ed.unit_price)
+        );
+      });
+    const onlyDescriptionChanged =
+      !headerChanged && diffAmount === 0 && sameQuantitiesAndPrices &&
+      originalDoc.items.some((it, i) => {
+        const ed = dto.items[i];
+        return ed && (it.description || '').trim() !== (ed.description || '').trim();
+      });
+
+    const baseUrl = `${process.env.APP_URL || `http://localhost:${process.env.PORT || 4001}`}`;
+
+    // =========================================================================
+    // CASO D: Solo cambió la descripción y estamos dentro de 10 días hábiles
+    // =========================================================================
+    if (onlyDescriptionChanged && isWithin10WorkingDays) {
+      const noteSeries = originalDoc.document_type === '01' ? 'FC01' : 'BC01';
+      const ncDto: CreateDocumentDto = {
+        idempotency_key: `nc_desc_${originalDoc.id}_${Date.now()}`,
+        document_type: '07',
+        series: noteSeries,
+        ref_document_type: originalDoc.document_type,
+        ref_series: originalDoc.series,
+        ref_number: originalDoc.number,
+        ref_reason_code: '03',
+        ref_reason_desc: 'CORRECCION POR ERROR EN LA DESCRIPCION',
+        client_doc_type: originalDoc.client_doc_type,
+        client_doc_number: originalDoc.client_doc_number,
+        client_name: originalDoc.client_name,
+        client_address: originalDoc.client_address || undefined,
+        client_email: originalDoc.client_email || undefined,
+        currency: originalDoc.currency,
+        items: dto.items.map((it, idx) => ({
+          code: it.code || `ITEM-${idx + 1}`,
+          description: `CORRECCIÓN: ${it.description}`,
+          quantity: it.quantity,
+          unit_price: 0,
+          unit_value: 0,
+          igv_affectation_type: it.igv_affectation_type || '10',
+        })),
+        send_now: true,
+      };
+
+      const ncDoc = await this.createDocument(company, ncDto);
+
+      await this.prisma.document.update({
+        where: { id: originalDoc.id },
+        data: {
+          metadata: {
+            ...((originalDoc.metadata as any) || {}),
+            correccion_descripcion: {
+              fecha: new Date().toISOString(),
+              nota_credito: ncDoc.full_number,
+              items_corregidos: dto.items.map((it) => it.description),
+            },
+          },
+        },
+      });
+
+      return {
+        success: true,
+        caso: 'CASE_D',
+        mensaje: `Se emitió la Nota de Crédito rectificativa ${ncDoc.full_number} (Motivo 03). El comprobante original ${originalDoc.full_number} permanece vigente.`,
+        comprobante_original: originalDoc,
+        nota_credito: ncDoc,
+        recursos_nc: {
+          pdf_url: `${baseUrl}/api/v1/documents/${ncDoc.id}/html`,
+          xml_url: `${baseUrl}/api/v1/documents/${ncDoc.id}/xml`,
+          cdr_url: `${baseUrl}/api/v1/documents/${ncDoc.id}/cdr`,
+        },
+      };
+    }
+
+    // =========================================================================
+    // CASO A: Cambió cabecera O descripción superó 10 días hábiles
+    // =========================================================================
+    if (headerChanged || (onlyDescriptionChanged && !isWithin10WorkingDays)) {
+      const reasonCode = clientDocChanged ? '02' : '01';
+      const reasonDesc = clientDocChanged ? 'ANULACION POR ERROR EN EL RUC' : 'ANULACION DE LA OPERACION';
+
+      const noteSeries = originalDoc.document_type === '01' ? 'FC01' : 'BC01';
+      const ncDto: CreateDocumentDto = {
+        idempotency_key: `nc_annul_${originalDoc.id}_${Date.now()}`,
+        document_type: '07',
+        series: noteSeries,
+        ref_document_type: originalDoc.document_type,
+        ref_series: originalDoc.series,
+        ref_number: originalDoc.number,
+        ref_reason_code: reasonCode,
+        ref_reason_desc: reasonDesc,
+        client_doc_type: originalDoc.client_doc_type,
+        client_doc_number: originalDoc.client_doc_number,
+        client_name: originalDoc.client_name,
+        client_address: originalDoc.client_address || undefined,
+        client_email: originalDoc.client_email || undefined,
+        currency: originalDoc.currency,
+        items: originalDoc.items.map((it) => ({
+          code: it.code || undefined,
+          description: it.description,
+          quantity: Number(it.quantity),
+          unit_price: Number(it.unit_price),
+          unit_value: Number(it.unit_value),
+          igv_affectation_type: it.igv_affectation_type,
+        })),
+        send_now: true,
+      };
+
+      const ncDoc = await this.createDocument(company, ncDto);
+
+      // Marcar original como ANULADO
+      await this.prisma.document.update({
+        where: { id: originalDoc.id },
+        data: { status: DocumentStatus.ANULADO },
+      });
+
+      // Emitir nuevo comprobante corregido
+      const newDocDto: CreateDocumentDto = {
+        idempotency_key: `new_${originalDoc.id}_${Date.now()}`,
+        document_type: originalDoc.document_type,
+        series: originalDoc.series,
+        issue_date: targetIssueDate,
+        currency: dto.currency || originalDoc.currency,
+        payment_type: dto.payment_type || originalDoc.payment_type,
+        client_doc_type: dto.client_doc_type,
+        client_doc_number: dto.client_doc_number,
+        client_name: dto.client_name,
+        client_address: dto.client_address || '',
+        client_email: dto.client_email || '',
+        items: dto.items.map((it) => ({
+          code: it.code || '',
+          description: it.description,
+          quantity: Number(it.quantity),
+          unit_price: Number(it.unit_price),
+          unit_value: it.unit_value ? Number(it.unit_value) : undefined,
+          igv_affectation_type: it.igv_affectation_type || '10',
+        })),
+        send_now: true,
+        metadata: {
+          reemplaza_a: originalDoc.full_number,
+          anulado_con_nc: ncDoc.full_number,
+        },
+      };
+
+      const newDoc = await this.createDocument(company, newDocDto);
+
+      await this.prisma.document.update({
+        where: { id: originalDoc.id },
+        data: {
+          metadata: {
+            ...((originalDoc.metadata as any) || {}),
+            rectificado: {
+              fecha: new Date().toISOString(),
+              nota_credito: ncDoc.full_number,
+              nuevo_comprobante: newDoc.full_number,
+              motivo: reasonDesc,
+            },
+          },
+        },
+      });
+
+      return {
+        success: true,
+        caso: 'CASE_A',
+        mensaje: `Se anuló el comprobante ${originalDoc.full_number} con Nota de Crédito ${ncDoc.full_number} (${reasonDesc}) y se emitió el nuevo comprobante oficial ${newDoc.full_number}.`,
+        comprobante_original: originalDoc,
+        nota_credito: ncDoc,
+        nuevo_comprobante: newDoc,
+        recursos_nc: {
+          pdf_url: `${baseUrl}/api/v1/documents/${ncDoc.id}/html`,
+          xml_url: `${baseUrl}/api/v1/documents/${ncDoc.id}/xml`,
+          cdr_url: `${baseUrl}/api/v1/documents/${ncDoc.id}/cdr`,
+        },
+        recursos_nuevo: {
+          pdf_url: `${baseUrl}/api/v1/documents/${newDoc.id}/html`,
+          xml_url: `${baseUrl}/api/v1/documents/${newDoc.id}/xml`,
+          cdr_url: `${baseUrl}/api/v1/documents/${newDoc.id}/cdr`,
+        },
+      };
+    }
+
+    // =========================================================================
+    // CASO B: Bajó el importe -> Nota de Crédito por la diferencia restada
+    // =========================================================================
+    if (diffAmount < 0) {
+      const absDiff = Math.abs(diffAmount);
+      const isDevolucion =
+        dto.items.length < originalDoc.items.length ||
+        originalDoc.items.some((it) => {
+          const match = dto.items.find((e) => (e.code && e.code === it.code) || e.description === it.description);
+          return match && Number(match.quantity) < Number(it.quantity);
+        });
+
+      const reasonCode = isDevolucion ? '07' : '05';
+      const reasonDesc = isDevolucion ? 'DEVOLUCION POR ITEM' : 'DESCUENTO POR ITEM';
+
+      const noteSeries = originalDoc.document_type === '01' ? 'FC01' : 'BC01';
+      const ncDto: CreateDocumentDto = {
+        idempotency_key: `nc_diff_${originalDoc.id}_${Date.now()}`,
+        document_type: '07',
+        series: noteSeries,
+        ref_document_type: originalDoc.document_type,
+        ref_series: originalDoc.series,
+        ref_number: originalDoc.number,
+        ref_reason_code: reasonCode,
+        ref_reason_desc: reasonDesc,
+        client_doc_type: originalDoc.client_doc_type,
+        client_doc_number: originalDoc.client_doc_number,
+        client_name: originalDoc.client_name,
+        client_address: originalDoc.client_address || undefined,
+        client_email: originalDoc.client_email || undefined,
+        currency: originalDoc.currency,
+        items: [
+          {
+            code: 'AJUSTE',
+            description: `${reasonDesc} S/ ${absDiff.toFixed(2)} A ${originalDoc.full_number}`,
+            quantity: 1,
+            unit_price: absDiff,
+            igv_affectation_type: originalDoc.items[0]?.igv_affectation_type || '10',
+          },
+        ],
+        send_now: true,
+      };
+
+      const ncDoc = await this.createDocument(company, ncDto);
+
+      await this.prisma.document.update({
+        where: { id: originalDoc.id },
+        data: {
+          metadata: {
+            ...((originalDoc.metadata as any) || {}),
+            saldo_restante: newTotal,
+            notas_credito: [
+              ...(((originalDoc.metadata as any)?.notas_credito) || []),
+              { full_number: ncDoc.full_number, monto: absDiff, fecha: new Date().toISOString() },
+            ],
+          },
+        },
+      });
+
+      return {
+        success: true,
+        caso: 'CASE_B',
+        mensaje: `Se emitió la Nota de Crédito ${ncDoc.full_number} (${reasonDesc}) por la diferencia de S/ ${absDiff.toFixed(2)}. El comprobante ${originalDoc.full_number} se mantiene válido por el nuevo saldo de S/ ${newTotal.toFixed(2)}.`,
+        comprobante_original: { ...originalDoc, saldo_restante: newTotal },
+        nota_credito: ncDoc,
+        recursos_nc: {
+          pdf_url: `${baseUrl}/api/v1/documents/${ncDoc.id}/html`,
+          xml_url: `${baseUrl}/api/v1/documents/${ncDoc.id}/xml`,
+          cdr_url: `${baseUrl}/api/v1/documents/${ncDoc.id}/cdr`,
+        },
+      };
+    }
+
+    // =========================================================================
+    // CASO C: Subió el importe -> Nota de Débito por la diferencia sumada
+    // =========================================================================
+    if (diffAmount > 0) {
+      const noteSeries = originalDoc.document_type === '01' ? 'FD01' : 'BD01';
+      const ndDto: CreateDocumentDto = {
+        idempotency_key: `nd_diff_${originalDoc.id}_${Date.now()}`,
+        document_type: '08',
+        series: noteSeries,
+        ref_document_type: originalDoc.document_type,
+        ref_series: originalDoc.series,
+        ref_number: originalDoc.number,
+        ref_reason_code: '02',
+        ref_reason_desc: 'AUMENTO EN EL VALOR',
+        client_doc_type: originalDoc.client_doc_type,
+        client_doc_number: originalDoc.client_doc_number,
+        client_name: originalDoc.client_name,
+        client_address: originalDoc.client_address || undefined,
+        client_email: originalDoc.client_email || undefined,
+        currency: originalDoc.currency,
+        items: [
+          {
+            code: 'AJUSTE',
+            description: `AUMENTO EN EL VALOR DE S/ ${diffAmount.toFixed(2)} A ${originalDoc.full_number}`,
+            quantity: 1,
+            unit_price: diffAmount,
+            igv_affectation_type: originalDoc.items[0]?.igv_affectation_type || '10',
+          },
+        ],
+        send_now: true,
+      };
+
+      const ndDoc = await this.createDocument(company, ndDto);
+
+      await this.prisma.document.update({
+        where: { id: originalDoc.id },
+        data: {
+          metadata: {
+            ...((originalDoc.metadata as any) || {}),
+            saldo_actualizado: newTotal,
+            notas_debito: [
+              ...(((originalDoc.metadata as any)?.notas_debito) || []),
+              { full_number: ndDoc.full_number, monto: diffAmount, fecha: new Date().toISOString() },
+            ],
+          },
+        },
+      });
+
+      return {
+        success: true,
+        caso: 'CASE_C',
+        mensaje: `Se emitió la Nota de Débito ${ndDoc.full_number} (Aumento en el valor) por el adicional de S/ ${diffAmount.toFixed(2)}. El comprobante ${originalDoc.full_number} se mantiene válido sumado a la Nota de Débito.`,
+        comprobante_original: { ...originalDoc, saldo_actualizado: newTotal },
+        nota_debito: ndDoc,
+        recursos_nd: {
+          pdf_url: `${baseUrl}/api/v1/documents/${ndDoc.id}/html`,
+          xml_url: `${baseUrl}/api/v1/documents/${ndDoc.id}/xml`,
+          cdr_url: `${baseUrl}/api/v1/documents/${ndDoc.id}/cdr`,
+        },
+      };
+    }
+
+    return {
+      success: true,
+      caso: 'NO_CHANGES',
+      mensaje: 'No se detectaron diferencias con el comprobante original.',
+      comprobante_original: originalDoc,
+    };
+  }
+
+  public async smartEditBySeriesAndNumber(
+    company: Company,
+    series: string,
+    number: number,
+    dto: SmartEditDto,
+  ) {
+    const doc = await this.prisma.document.findFirst({
+      where: {
+        company_id: company.id,
+        series: series.toUpperCase(),
+        number: Number(number),
+      },
+      include: { items: true },
+    });
+    if (!doc) throw new NotFoundException(`Comprobante ${series}-${number} no encontrado.`);
+    return this.smartEditDocument(company, doc.id, dto);
+  }
+
+  /**
+   * EMISIÓN MANUAL DE NOTA DE CRÉDITO O DÉBITO (Catálogo 09 y Catálogo 10 SUNAT)
+   */
+  public async emitManualNote(
+    company: Company,
+    id: string,
+    dto: ManualNoteDto,
+  ) {
+    const originalDoc = await this.getDocumentById(company.id, id);
+
+    if (originalDoc.status !== DocumentStatus.ACCEPTED) {
+      throw new BadRequestException(
+        `Solo es posible emitir Notas sobre comprobantes ACEPTADOS oficialmente por SUNAT (CDR = 0).`,
+      );
+    }
+
+    const isFactura = originalDoc.document_type === '01';
+    const isCredit = dto.note_type === '07';
+    const defaultSeries = isCredit
+      ? (isFactura ? 'FC01' : 'BC01')
+      : (isFactura ? 'FD01' : 'BD01');
+
+    const noteAmount = dto.amount || Number(originalDoc.total_amount);
+
+    // Control de saldos para descuentos y devoluciones
+    if (isCredit && ['04', '05', '07', '09'].includes(dto.reason_code)) {
+      const prevNotes = ((originalDoc.metadata as any)?.notas_credito) || [];
+      const totalPrevNotes = prevNotes.reduce((sum: number, n: any) => sum + (Number(n.monto) || 0), 0);
+      const remainingBalance = Number(originalDoc.total_amount) - totalPrevNotes;
+      if (noteAmount > remainingBalance) {
+        throw new BadRequestException(
+          `El importe solicitado (S/ ${noteAmount.toFixed(2)}) supera el saldo disponible (S/ ${remainingBalance.toFixed(2)}) de ${originalDoc.full_number}.`,
+        );
+      }
+    }
+
+    const noteDto: CreateDocumentDto = {
+      idempotency_key: `manual_${dto.note_type}_${originalDoc.id}_${Date.now()}`,
+      document_type: dto.note_type,
+      series: defaultSeries,
+      ref_document_type: originalDoc.document_type,
+      ref_series: originalDoc.series,
+      ref_number: originalDoc.number,
+      ref_reason_code: dto.reason_code,
+      ref_reason_desc: dto.reason_description,
+      client_doc_type: originalDoc.client_doc_type,
+      client_doc_number: originalDoc.client_doc_number,
+      client_name: originalDoc.client_name,
+      client_address: originalDoc.client_address || undefined,
+      client_email: originalDoc.client_email || undefined,
+      currency: originalDoc.currency,
+      items: dto.items && dto.items.length > 0 ? dto.items : [
+        {
+          code: 'NOTA',
+          description: `${dto.reason_description} - REF ${originalDoc.full_number}`,
+          quantity: 1,
+          unit_price: noteAmount,
+          igv_affectation_type: originalDoc.items[0]?.igv_affectation_type || '10',
+        },
+      ],
+      send_now: true,
+    };
+
+    const noteDoc = await this.createDocument(company, noteDto);
+
+    if (isCredit && (dto.reason_code === '01' || dto.reason_code === '02' || dto.reason_code === '06')) {
+      await this.prisma.document.update({
+        where: { id: originalDoc.id },
+        data: { status: DocumentStatus.ANULADO },
+      });
+    }
+
+    const baseUrl = `${process.env.APP_URL || `http://localhost:${process.env.PORT || 4001}`}`;
+
+    return {
+      success: true,
+      mensaje: `Nota ${isCredit ? 'de Crédito' : 'de Débito'} ${noteDoc.full_number} emitida exitosamente ante SUNAT.`,
+      nota: noteDoc,
+      comprobante_original: originalDoc,
+      recursos: {
+        pdf_url: `${baseUrl}/api/v1/documents/${noteDoc.id}/html`,
+        xml_url: `${baseUrl}/api/v1/documents/${noteDoc.id}/xml`,
+        cdr_url: `${baseUrl}/api/v1/documents/${noteDoc.id}/cdr`,
+      },
+    };
+  }
+
+  public async emitManualNoteBySeriesAndNumber(
+    company: Company,
+    series: string,
+    number: number,
+    dto: ManualNoteDto,
+  ) {
+    const doc = await this.prisma.document.findFirst({
+      where: {
+        company_id: company.id,
+        series: series.toUpperCase(),
+        number: Number(number),
+      },
+      include: { items: true },
+    });
+    if (!doc) throw new NotFoundException(`Comprobante ${series}-${number} no encontrado.`);
+    return this.emitManualNote(company, doc.id, dto);
   }
 
   /**

@@ -19,6 +19,7 @@ import { ApiTags, ApiOperation, ApiSecurity, ApiQuery, ApiResponse } from '@nest
 import { DocumentsService } from './documents.service';
 import { CreateDocumentDto } from './dto/create-document.dto';
 import { CcofactDocumentDto } from './dto/ccofact-document.dto';
+import { SmartEditDto, ManualNoteDto } from './dto/smart-edit.dto';
 import { ApiKeyGuard } from '../../common/guards/api-key.guard';
 import { CurrentCompany } from '../../common/decorators/current-company.decorator';
 import type { Company } from '@prisma/client';
@@ -143,6 +144,70 @@ export class DocumentsController {
       body.nuevo_comprobante,
       body.motivo_anulacion,
     );
+  }
+
+  /**
+   * BOTÓN EDITAR INTELIGENTE - MOTOR DE ANÁLISIS DE DIFERENCIAS (DIFF ENGINE)
+   */
+  @Post('documents/:id/smart-edit')
+  @ApiSecurity('api-key')
+  @UseGuards(ApiKeyGuard)
+  @ApiOperation({
+    summary: 'Editar comprobante con Diff Engine inteligente (Casos A, B, C, D SUNAT)',
+  })
+  async smartEditDocument(
+    @CurrentCompany() company: Company,
+    @Param('id') id: string,
+    @Body() dto: SmartEditDto,
+  ) {
+    return this.documentsService.smartEditDocument(company, id, dto);
+  }
+
+  @Post('documents/by-series-number/:series/:number/smart-edit')
+  @ApiSecurity('api-key')
+  @UseGuards(ApiKeyGuard)
+  @ApiOperation({
+    summary: 'Editar comprobante por Serie y Número con Diff Engine (Casos A, B, C, D SUNAT)',
+  })
+  async smartEditBySeriesNumber(
+    @CurrentCompany() company: Company,
+    @Param('series') series: string,
+    @Param('number') number: number,
+    @Body() dto: SmartEditDto,
+  ) {
+    return this.documentsService.smartEditBySeriesAndNumber(company, series, Number(number), dto);
+  }
+
+  /**
+   * EMISIÓN MANUAL DE NOTA DE CRÉDITO O DÉBITO (Catálogo 09 y 10)
+   */
+  @Post('documents/:id/manual-note')
+  @ApiSecurity('api-key')
+  @UseGuards(ApiKeyGuard)
+  @ApiOperation({
+    summary: 'Emitir Nota de Crédito o Débito manual seleccionando motivo de Catálogo 09 o 10',
+  })
+  async emitManualNote(
+    @CurrentCompany() company: Company,
+    @Param('id') id: string,
+    @Body() dto: ManualNoteDto,
+  ) {
+    return this.documentsService.emitManualNote(company, id, dto);
+  }
+
+  @Post('documents/by-series-number/:series/:number/manual-note')
+  @ApiSecurity('api-key')
+  @UseGuards(ApiKeyGuard)
+  @ApiOperation({
+    summary: 'Emitir Nota de Crédito o Débito manual por Serie y Número',
+  })
+  async emitManualNoteBySeriesNumber(
+    @CurrentCompany() company: Company,
+    @Param('series') series: string,
+    @Param('number') number: number,
+    @Body() dto: ManualNoteDto,
+  ) {
+    return this.documentsService.emitManualNoteBySeriesAndNumber(company, series, Number(number), dto);
   }
 
   /**
