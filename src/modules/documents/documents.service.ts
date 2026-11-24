@@ -431,8 +431,10 @@ export class DocumentsService {
           include: { items: true },
         });
 
-        // Construcción de XML UBL 2.1 y firma digital X.509
-        const rawXml = this.ublBuilder.buildInvoiceXml(savedDoc, company);
+        // Construcción de XML UBL 2.1 y firma digital X.509 (Factura/Boleta/Notas vs Guía de Remisión)
+        const rawXml = savedDoc.document_type === '09'
+          ? this.ublBuilder.buildDespatchAdviceXml(savedDoc, company)
+          : this.ublBuilder.buildInvoiceXml(savedDoc, company);
         const signResult = this.xmlSigner.signXml(
           rawXml,
           company.certificate_pfx_base64 || '',
