@@ -558,7 +558,45 @@ export class DocumentsService {
       });
     }
 
-    return await this.getDocumentById(company.id, createdDoc.id);
+    const updatedDoc = await this.getDocumentById(company.id, createdDoc.id);
+
+    // Sincronización atómica en tiempo real con Control Finanzas
+    try {
+      if (updatedDoc.document_type === '01' || updatedDoc.document_type === '03') {
+        await this.syncStatusToControlFinanzas(
+          updatedDoc.series,
+          updatedDoc.number,
+          updatedDoc.status,
+          updatedDoc.sunat_description || undefined,
+        );
+      } else if (
+        (updatedDoc.document_type === '07' || updatedDoc.document_type === '08') &&
+        updatedDoc.ref_series &&
+        updatedDoc.ref_number
+      ) {
+        const isAnul =
+          updatedDoc.document_type === '07' &&
+          ['01', '02'].includes(updatedDoc.ref_reason_code || '');
+        await this.syncStatusToControlFinanzas(
+          updatedDoc.ref_series,
+          updatedDoc.ref_number,
+          isAnul ? 'ANULADO' : 'MODIFICADO',
+          undefined,
+          {
+            noteSerieNumber: updatedDoc.full_number,
+            reasonCode: updatedDoc.ref_reason_code || '',
+            reasonDesc: updatedDoc.ref_reason_desc || '',
+            adjustmentAmount: Number(updatedDoc.total_amount),
+          },
+        );
+      }
+    } catch (syncErr: any) {
+      this.logger.warn(
+        `[CONTROL FINANZAS SYNC] No se pudo sincronizar automáticamente: ${syncErr.message}`,
+      );
+    }
+
+    return updatedDoc;
   }
 
   /**
@@ -950,10 +988,66 @@ export class DocumentsService {
       throw new BadRequestException('Solo se pueden anular Facturas (01) o Boletas de Venta (03) con Nota de Crédito.');
     }
 
+    // 1. Calcular el balance real remanente consultando todas las notas aceptadas vinculadas
+    const existingNotes = await this.prisma.document.findMany({
+      where: {
+        company_id: company.id,
+        ref_series: originalDoc.series,
+        ref_number: originalDoc.number,
+        status: { in: [DocumentStatus.ACCEPTED, DocumentStatus.ACCEPTED_OBSERVED] },
+      },
+    });
+
+    const totalCredits = existingNotes
+      .filter((n) => n.document_type === '07')
+      .reduce((acc, n) => acc + Number(n.total_amount || 0), 0);
+
+    const totalDebits = existingNotes
+      .filter((n) => n.document_type === '08')
+      .reduce((acc, n) => acc + Number(n.total_amount || 0), 0);
+
+    const docTotal = Number(originalDoc.total_amount || 0);
+    const remainingBalance = Number((docTotal - totalCredits + totalDebits).toFixed(2));
+
+    if (remainingBalance <= 0.009) {
+      throw new BadRequestException(
+        `El comprobante ${originalDoc.full_number} ya no cuenta con saldo pendiente para anular (Saldo actual: S/ 0.00). La operación ya fue completamente liquidada o anulada por sus notas vinculadas.`,
+      );
+    }
+
     const origSeries = originalDoc.series || '';
     const ncSeries = originalDoc.document_type === '01'
       ? (origSeries.startsWith('F') && origSeries.length === 4 ? `FC${origSeries.substring(2)}` : 'FC01')
       : (origSeries.startsWith('B') && origSeries.length === 4 ? `BC${origSeries.substring(2)}` : 'BC01');
+
+    const hasPreviousAdjustments = Math.abs(remainingBalance - docTotal) > 0.01;
+
+    let ncItems: any[];
+    if (!hasPreviousAdjustments && originalDoc.items && originalDoc.items.length > 0) {
+      ncItems = originalDoc.items.map((it) => ({
+        code: it.code || 'ITEM',
+        description: it.description || 'CONSUMO',
+        unit_measure: it.unit_measure || 'NIU',
+        quantity: Number(it.quantity) || 1,
+        unit_price: Number(it.unit_price) || Number(originalDoc.total_amount),
+        igv_affectation_type: it.igv_affectation_type || (Number(originalDoc.total_exonerada) > 0 ? '20' : '10'),
+      }));
+    } else {
+      const defaultAffectation =
+        originalDoc.items?.[0]?.igv_affectation_type ||
+        (Number(originalDoc.total_exonerada) > 0 ? '20' : Number(originalDoc.total_inafecta) > 0 ? '30' : '10');
+
+      ncItems = [
+        {
+          code: 'ANULACION',
+          description: `ANULACION DE LA OPERACION - SALDO REMANENTE DE ${originalDoc.full_number}`,
+          unit_measure: 'NIU',
+          quantity: 1,
+          unit_price: remainingBalance,
+          igv_affectation_type: defaultAffectation,
+        },
+      ];
+    }
 
     const ncDto: CreateDocumentDto = {
       idempotency_key: `nc_anulacion_${originalDoc.id}_${Date.now()}`,
@@ -970,26 +1064,7 @@ export class DocumentsService {
       ref_number: originalDoc.number,
       ref_reason_code: '01',
       ref_reason_desc: (motivo || 'ANULACION DE LA OPERACION').toUpperCase(),
-      items:
-        originalDoc.items && originalDoc.items.length > 0
-          ? originalDoc.items.map((it) => ({
-              code: it.code || 'ITEM',
-              description: it.description || 'CONSUMO',
-              unit_measure: it.unit_measure || 'NIU',
-              quantity: Number(it.quantity) || 1,
-              unit_price: Number(it.unit_price) || Number(originalDoc.total_amount),
-              igv_affectation_type: it.igv_affectation_type || (Number(originalDoc.total_exonerada) > 0 ? '20' : '10'),
-            }))
-          : [
-              {
-                code: 'ITEM',
-                description: 'CONSUMO',
-                unit_measure: 'NIU',
-                quantity: 1,
-                unit_price: Number(originalDoc.total_amount) || 10,
-                igv_affectation_type: Number(originalDoc.total_exonerada) > 0 ? '20' : '10',
-              },
-            ],
+      items: ncItems,
       send_now: true,
     };
 
@@ -1001,11 +1076,13 @@ export class DocumentsService {
         status: DocumentStatus.ANULADO,
         metadata: {
           ...((originalDoc.metadata as any) || {}),
+          saldo_disponible: 0,
           anulacion_legal: {
             tipo: 'NOTA_DE_CREDITO',
             nota_credito_id: creditNoteDoc.id,
             nota_credito_numero: creditNoteDoc.full_number,
             motivo: ncDto.ref_reason_desc,
+            monto_anulado: remainingBalance,
             fecha_anulacion: new Date().toISOString(),
           },
         },
@@ -1013,8 +1090,24 @@ export class DocumentsService {
     });
 
     this.logger.log(
-      `[ANULACIÓN LEGAL SUNAT] Comprobante ${originalDoc.full_number} anulado formalmente con Nota de Crédito ${creditNoteDoc.full_number}`,
+      `[ANULACIÓN LEGAL SUNAT] Comprobante ${originalDoc.full_number} anulado formalmente con Nota de Crédito ${creditNoteDoc.full_number} por saldo remanente de S/ ${remainingBalance.toFixed(2)}`,
     );
+
+    // Sincronización atómica con Control Finanzas en tiempo real
+    if (originalDoc.series && originalDoc.number) {
+      await this.syncStatusToControlFinanzas(
+        originalDoc.series,
+        originalDoc.number,
+        'ANULADO',
+        `Anulado formalmente con Nota de Crédito ${creditNoteDoc.full_number}`,
+        {
+          noteSerieNumber: creditNoteDoc.full_number,
+          reasonCode: ncDto.ref_reason_code || '01',
+          reasonDesc: ncDto.ref_reason_desc || 'ANULACION DE LA OPERACION',
+          adjustmentAmount: remainingBalance,
+        },
+      );
+    }
 
     return {
       success: true,
@@ -1719,6 +1812,21 @@ export class DocumentsService {
         },
       });
 
+      if (originalDoc.series && originalDoc.number) {
+        await this.syncStatusToControlFinanzas(
+          originalDoc.series,
+          originalDoc.number,
+          ['01', '02'].includes(reasonCode) ? 'ANULADO' : originalDoc.status,
+          undefined,
+          {
+            noteSerieNumber: ncDoc.full_number,
+            reasonCode: reasonCode,
+            reasonDesc: reasonDesc,
+            adjustmentAmount: absDiff,
+          },
+        );
+      }
+
       return {
         success: true,
         caso: 'CASE_B',
@@ -1784,6 +1892,21 @@ export class DocumentsService {
           },
         },
       });
+
+      if (originalDoc.series && originalDoc.number) {
+        await this.syncStatusToControlFinanzas(
+          originalDoc.series,
+          originalDoc.number,
+          originalDoc.status,
+          undefined,
+          {
+            noteSerieNumber: ndDoc.full_number,
+            reasonCode: '02',
+            reasonDesc: 'AUMENTO EN EL VALOR',
+            adjustmentAmount: diffAmount,
+          },
+        );
+      }
 
       return {
         success: true,
@@ -1886,12 +2009,35 @@ export class DocumentsService {
       );
     }
 
-    const noteAmount = dto.amount !== undefined && dto.amount !== null ? Number(dto.amount) : remainingBalance;
+    if (!isCredit && (hasFullAnnulmentNote || remainingBalance <= 0.001)) {
+      throw new BadRequestException(
+        `El comprobante ${originalDoc.full_number} se encuentra totalmente anulado o con saldo S/ 0.00. No se puede emitir una Nota de Débito sobre un comprobante anulado o liquidado según normativa SUNAT.`,
+      );
+    }
+
+    let noteAmount = dto.amount !== undefined && dto.amount !== null ? Number(dto.amount) : remainingBalance;
 
     if (isCredit) {
-      if (noteAmount > remainingBalance + 0.005) {
+      if (dto.reason_code === '03') {
+        // Motivo 03: Corrección por error en la descripción. No debe alterar el valor monetario
+        noteAmount = 0.00;
+      } else if (['01', '02', '06'].includes(dto.reason_code)) {
+        // Motivos 01 (Anulación de la operación), 02 (Error en RUC) y 06 (Devolución total):
+        // Se emiten obligatoriamente por el saldo remanente exacto
+        noteAmount = remainingBalance;
+      } else if (noteAmount > remainingBalance + 0.005) {
         throw new BadRequestException(
           `El importe solicitado (S/ ${noteAmount.toFixed(2)}) supera el saldo disponible (S/ ${remainingBalance.toFixed(2)}) del comprobante ${originalDoc.full_number}.`,
+        );
+      } else if (noteAmount <= 0) {
+        throw new BadRequestException(
+          `Para el motivo seleccionado, el importe de la Nota de Crédito debe ser mayor a S/ 0.00.`,
+        );
+      }
+    } else {
+      if (noteAmount <= 0) {
+        throw new BadRequestException(
+          `El importe de la Nota de Débito debe ser mayor a S/ 0.00.`,
         );
       }
     }
@@ -1911,34 +2057,71 @@ export class DocumentsService {
       client_address: originalDoc.client_address || undefined,
       client_email: originalDoc.client_email || undefined,
       currency: originalDoc.currency,
-      items: (dto.items && dto.items.length > 0)
-        ? dto.items.map((it, idx) => ({
-            code: it.code || `ITEM-${idx + 1}`,
-            description: it.description || (it as any).name || `${dto.reason_description} - REF ${originalDoc.full_number}`,
-            quantity: Number(it.quantity) || 1,
-            unit_price: Number(it.unit_price !== undefined ? it.unit_price : (it as any).price) || 0,
-            unit_measure: it.unit_measure || 'NIU',
-            igv_affectation_type: it.igv_affectation_type || originalDoc.items[0]?.igv_affectation_type || '10',
-          }))
-        : [
+      items: (() => {
+        let list = (dto.items && dto.items.length > 0)
+          ? dto.items.map((it, idx) => {
+              let uPrice = Number(it.unit_price !== undefined ? it.unit_price : (it as any).price);
+              if (isNaN(uPrice) || uPrice < 0) uPrice = 0;
+              return {
+                code: it.code || `ITEM-${idx + 1}`,
+                description: it.description || (it as any).name || `${dto.reason_description} - REF ${originalDoc.full_number}`,
+                quantity: Number(it.quantity) || 1,
+                unit_price: uPrice,
+                unit_measure: it.unit_measure || 'NIU',
+                igv_affectation_type: it.igv_affectation_type || originalDoc.items[0]?.igv_affectation_type || '10',
+              };
+            })
+          : [];
+
+        const sumCalculated = list.reduce((sum, i) => sum + (i.quantity * i.unit_price), 0);
+        if (noteAmount > 0 && sumCalculated <= 0) {
+          if (list.length === 1) {
+            list[0].unit_price = Number((noteAmount / list[0].quantity).toFixed(2));
+          } else if (list.length > 1) {
+            const part = Number((noteAmount / list.length).toFixed(2));
+            list.forEach(i => {
+              i.unit_price = Number((part / i.quantity).toFixed(2));
+            });
+          } else {
+            list = [
+              {
+                code: 'NOTA',
+                description: `${dto.reason_description} - REF ${originalDoc.full_number}`,
+                quantity: 1,
+                unit_price: noteAmount,
+                unit_measure: 'NIU',
+                igv_affectation_type: originalDoc.items[0]?.igv_affectation_type || '10',
+              },
+            ];
+          }
+        } else if (list.length === 0) {
+          list = [
             {
               code: 'NOTA',
               description: `${dto.reason_description} - REF ${originalDoc.full_number}`,
               quantity: 1,
               unit_price: noteAmount,
+              unit_measure: 'NIU',
               igv_affectation_type: originalDoc.items[0]?.igv_affectation_type || '10',
             },
-          ],
+          ];
+        }
+        return list;
+      })(),
       send_now: true,
     };
 
     const noteDoc = await this.createDocument(company, noteDto);
 
-    // Actualizar estado del original si la nota de crédito extingue el saldo o es de anulación total
-    const willAnul = isCredit && (['01', '02', '06'].includes(dto.reason_code) || noteAmount >= remainingBalance - 0.005);
-    const newRemainingBalance = isCredit
-      ? Number(Math.max(0, remainingBalance - noteAmount).toFixed(2))
-      : Number((remainingBalance + noteAmount).toFixed(2));
+    // Actualizar estado del original si la nota de crédito es de anulación formal ante SUNAT (01 Anulación de la operación, 02 Error en RUC, 06 Devolución total o liquidación del 100%)
+    const effectiveNoteAmount = Number(noteDoc.total_amount) > 0 ? Number(noteDoc.total_amount) : noteAmount;
+    const isAnulReason = isCredit && ['01', '02', '06'].includes(dto.reason_code);
+    const newRemainingBalance = isAnulReason
+      ? 0
+      : isCredit
+      ? Number(Math.max(0, remainingBalance - effectiveNoteAmount).toFixed(2))
+      : Number((remainingBalance + effectiveNoteAmount).toFixed(2));
+    const willAnul = isCredit && (isAnulReason || newRemainingBalance <= 0.009);
 
     const prevNotesMeta = ((originalDoc.metadata as any)?.notas || []);
     prevNotesMeta.push({
@@ -1946,7 +2129,7 @@ export class DocumentsService {
       tipo: dto.note_type,
       motivo: dto.reason_code,
       descripcion: dto.reason_description,
-      monto: noteAmount,
+      monto: effectiveNoteAmount,
       fecha: new Date().toISOString(),
     });
 
@@ -1961,6 +2144,21 @@ export class DocumentsService {
         },
       },
     });
+
+    if (originalDoc.series && originalDoc.number) {
+      await this.syncStatusToControlFinanzas(
+        originalDoc.series,
+        originalDoc.number,
+        willAnul ? 'ANULADO' : originalDoc.status,
+        undefined,
+        {
+          noteSerieNumber: noteDoc.full_number,
+          reasonCode: dto.reason_code,
+          reasonDesc: dto.reason_description,
+          adjustmentAmount: effectiveNoteAmount,
+        },
+      );
+    }
 
     const baseUrl = `${process.env.APP_URL || `http://localhost:${process.env.PORT || 4001}`}`;
 
@@ -2063,6 +2261,71 @@ export class DocumentsService {
     } catch (err: any) {
       this.logger.debug(`No se pudo consultar Control Finanzas DB: ${err.message}`);
       return null;
+    }
+  }
+
+  /**
+   * Sincronización bidireccional directa con el sistema Control Finanzas
+   * Notifica el estado fiscal y comercial oficial (ACEPTADO, RECHAZADO, ANULADO, MODIFICADO)
+   */
+  public async syncStatusToControlFinanzas(
+    series: string,
+    number: number,
+    billingStatus: string,
+    billingError?: string | null,
+    noteInfo?: {
+      noteSerieNumber: string;
+      reasonCode: string;
+      reasonDesc: string;
+      adjustmentAmount?: number;
+    },
+  ): Promise<boolean> {
+    try {
+      const { Client } = require('pg');
+      const cfDbUrl =
+        process.env.CONTROL_FINANZAS_DATABASE_URL ||
+        'postgresql://postgres:vidcy@localhost:5432/control_finanzas';
+      const client = new Client({ connectionString: cfDbUrl });
+      await client.connect();
+
+      const cleanSeries = series.toUpperCase();
+      const cleanNum = Number(number);
+
+      let errorMsg = billingError || null;
+      if (noteInfo) {
+        errorMsg = `[MOVIMIENTO COMERCIAL] ${noteInfo.noteSerieNumber} - Motivo: ${noteInfo.reasonDesc} (${noteInfo.reasonCode}). Ajuste: S/ ${Number(noteInfo.adjustmentAmount || 0).toFixed(2)}`;
+      }
+
+      await client.query(
+        `UPDATE "Sale" 
+         SET "billingStatus" = $1, 
+             "billingError" = COALESCE($2, "billingError"),
+             "updatedAt" = NOW()
+         WHERE UPPER("billingSerie") = $3 AND "billingNumber" = $4`,
+        [billingStatus, errorMsg, cleanSeries, cleanNum],
+      );
+
+      // Si existe registro en FiscalDocument de Control Finanzas, sincronizar estado fiscal
+      await client.query(
+        `UPDATE "FiscalDocument"
+         SET "status" = CASE 
+                          WHEN $1 = 'ANULADO' THEN 'CANCELLED'::"FiscalStatus"
+                          WHEN $1 = 'ACCEPTED' THEN 'ACCEPTED'::"FiscalStatus"
+                          WHEN $1 = 'REJECTED' THEN 'REJECTED'::"FiscalStatus"
+                          ELSE "status"
+                        END,
+             "cdrDescription" = COALESCE($2, "cdrDescription"),
+             "updatedAt" = NOW()
+         WHERE UPPER("serie") = $3 AND "correlative" = $4`,
+        [billingStatus, errorMsg, cleanSeries, cleanNum],
+      ).catch(() => {});
+
+      await client.end();
+      this.logger.log(`[CONTROL FINANZAS SYNC] Venta ${cleanSeries}-${cleanNum} sincronizada exitosamente con estado: ${billingStatus}`);
+      return true;
+    } catch (err: any) {
+      this.logger.warn(`[CONTROL FINANZAS SYNC] No se pudo sincronizar venta ${series}-${number}: ${err.message}`);
+      return false;
     }
   }
 

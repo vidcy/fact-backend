@@ -438,6 +438,24 @@ export class DocumentsController {
   }
 
   /**
+   * ANULACIÓN FISCAL POR SERIE Y NÚMERO (Usado por Control Finanzas y ERPs)
+   */
+  @Post('documents/by-series-number/:series/:number/anular-fiscal')
+  @ApiSecurity('api-key')
+  @UseGuards(ApiKeyGuard)
+  @ApiOperation({
+    summary: 'Anulación Legal con Nota de Crédito por Serie y Número',
+  })
+  async anularFiscalBySeriesNumber(
+    @CurrentCompany() company: Company,
+    @Param('series') series: string,
+    @Param('number') number: number,
+    @Body('motivo') motivo?: string,
+  ) {
+    return this.documentsService.anularFiscalBySeriesAndNumber(company, series, Number(number), motivo);
+  }
+
+  /**
    * BUSCAR COMPROBANTE POR SERIE Y NÚMERO
    */
   @Get('documents/by-series-number/:series/:number')
@@ -486,25 +504,6 @@ export class DocumentsController {
       body.series,
       Number(body.number),
     );
-  }
-
-  /**
-   * ANULACIÓN FISCAL OFICIAL POR SERIE Y NÚMERO (Para Control Finanzas y ERPs)
-   */
-  @Post('documents/by-series-number/:series/:number/anular-fiscal')
-  @ApiSecurity('api-key')
-  @UseGuards(ApiKeyGuard)
-  @ApiOperation({
-    summary: 'Anulación Legal por Serie y Número (Sistemas Externos)',
-    description: 'Permite a Control Finanzas u otros sistemas anular legalmente ante SUNAT por serie y correlativo',
-  })
-  async anularFiscalBySeriesNumber(
-    @CurrentCompany() company: Company,
-    @Param('series') series: string,
-    @Param('number') number: number,
-    @Body('motivo') motivo?: string,
-  ) {
-    return this.documentsService.anularFiscalBySeriesAndNumber(company, series, number, motivo);
   }
 
   /**

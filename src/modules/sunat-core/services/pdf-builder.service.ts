@@ -285,6 +285,11 @@ export class PdfBuilderService {
   <div><b>CLIENTE:</b> ${doc.client_name}</div>
   <div><b>DOC:</b> ${doc.client_doc_number}</div>
   <div><b>FORMA PAGO:</b> ${doc.payment_type}</div>
+  ${doc.ref_series && doc.ref_number ? `
+  <div style="margin-top: 3px; padding-top: 3px; border-top: 1px dotted #ccc;">
+    <div><b>DOC. AFECTADO:</b> ${doc.ref_series}-${String(doc.ref_number).padStart(8, '0')}</div>
+    <div><b>MOTIVO SUNAT:</b> [${doc.ref_reason_code || '01'}] ${doc.ref_reason_desc || 'AJUSTE / ANULACION'}</div>
+  </div>` : ''}
   <div class="divider"></div>
   <table>
     <thead>
