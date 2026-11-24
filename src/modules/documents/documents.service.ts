@@ -214,7 +214,7 @@ export class DocumentsService {
    */
   public async createDocument(company: Company, dto: CreateDocumentDto): Promise<Document> {
     // ------------------------------------------------------------------------
-    // FASE 1: CHEQUEO DE IDEMPOTENCIA
+    // FASE 1: CHEQUEO DE IDEMPOTENCIA Y PROTECCIÓN MULTI-CLIC
     // ------------------------------------------------------------------------
     if (dto.idempotency_key) {
       const existing = await this.prisma.document.findFirst({
@@ -232,6 +232,27 @@ export class DocumentsService {
           return this.retryDocument(company, existing.id);
         }
         return existing;
+      }
+    } else {
+      // Detección anti-duplicidad por ventana de seguridad (15 segundos) para peticiones sin idempotency_key
+      const fifteenSecsAgo = new Date(Date.now() - 15 * 1000);
+      const totalAmountApprox = dto.items?.reduce((acc, it) => acc + (Number(it.quantity) * Number(it.unit_price)), 0) || 0;
+
+      const recentDup = await this.prisma.document.findFirst({
+        where: {
+          company_id: company.id,
+          document_type: dto.document_type,
+          client_doc_number: dto.client_doc_number,
+          series: dto.series.toUpperCase(),
+          created_at: { gte: fifteenSecsAgo },
+        },
+        include: { items: true },
+        orderBy: { created_at: 'desc' },
+      });
+
+      if (recentDup && Math.abs(Number(recentDup.total_amount) - totalAmountApprox) < 0.05) {
+        this.logger.warn(`[ANTI MULTI-CLIC] Detectada solicitud idéntica en ventana de 15s para cliente ${dto.client_doc_number} (serie ${dto.series}). Retornando comprobante previo ${recentDup.full_number} para evitar duplicidad.`);
+        return recentDup;
       }
     }
 
@@ -438,6 +459,14 @@ export class DocumentsService {
         });
       });
     } catch (err: any) {
+      if (err.code === 'P2002' && dto.idempotency_key) {
+        this.logger.warn(`[IDEMPOTENCIA CONCURRENTE P2002] Detección de colisión atómica para clave ${dto.idempotency_key}. Retornando documento ganador.`);
+        const winner = await this.prisma.document.findFirst({
+          where: { company_id: company.id, idempotency_key: dto.idempotency_key },
+          include: { items: true },
+        });
+        if (winner) return winner;
+      }
       this.logger.error('Fallo en la creación transaccional del comprobante', err);
       throw new BadRequestException(`No se pudo generar el comprobante: ${err.message}`);
     }
