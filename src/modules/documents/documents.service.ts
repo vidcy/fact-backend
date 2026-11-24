@@ -63,7 +63,7 @@ export class DocumentsService {
 
     // Validador de normativas tributarias y algoritmo Módulo 11
     private validator: SunatValidatorService,
-  ) {}
+  ) { }
 
   /**
    * ==========================================================================
@@ -2091,17 +2091,17 @@ export class DocumentsService {
       items: (() => {
         let list = (dto.items && dto.items.length > 0)
           ? dto.items.map((it, idx) => {
-              let uPrice = Number(it.unit_price !== undefined ? it.unit_price : (it as any).price);
-              if (isNaN(uPrice) || uPrice < 0) uPrice = 0;
-              return {
-                code: it.code || `ITEM-${idx + 1}`,
-                description: it.description || (it as any).name || `${dto.reason_description} - REF ${originalDoc.full_number}`,
-                quantity: Number(it.quantity) || 1,
-                unit_price: uPrice,
-                unit_measure: it.unit_measure || 'NIU',
-                igv_affectation_type: it.igv_affectation_type || originalDoc.items[0]?.igv_affectation_type || '10',
-              };
-            })
+            let uPrice = Number(it.unit_price !== undefined ? it.unit_price : (it as any).price);
+            if (isNaN(uPrice) || uPrice < 0) uPrice = 0;
+            return {
+              code: it.code || `ITEM-${idx + 1}`,
+              description: it.description || (it as any).name || `${dto.reason_description} - REF ${originalDoc.full_number}`,
+              quantity: Number(it.quantity) || 1,
+              unit_price: uPrice,
+              unit_measure: it.unit_measure || 'NIU',
+              igv_affectation_type: it.igv_affectation_type || originalDoc.items[0]?.igv_affectation_type || '10',
+            };
+          })
           : [];
 
         const sumCalculated = list.reduce((sum, i) => sum + (i.quantity * i.unit_price), 0);
@@ -2150,8 +2150,8 @@ export class DocumentsService {
     const newRemainingBalance = isAnulReason
       ? 0
       : isCredit
-      ? Number(Math.max(0, remainingBalance - effectiveNoteAmount).toFixed(2))
-      : Number((remainingBalance + effectiveNoteAmount).toFixed(2));
+        ? Number(Math.max(0, remainingBalance - effectiveNoteAmount).toFixed(2))
+        : Number((remainingBalance + effectiveNoteAmount).toFixed(2));
     const willAnul = isCredit && (isAnulReason || newRemainingBalance <= 0.009);
 
     const prevNotesMeta = ((originalDoc.metadata as any)?.notas || []);
@@ -2274,11 +2274,11 @@ export class DocumentsService {
         amount: Number(first.amount) || 0,
         date: first.date
           ? new Intl.DateTimeFormat('en-CA', {
-              timeZone: 'America/Lima',
-              year: 'numeric',
-              month: '2-digit',
-              day: '2-digit',
-            }).format(new Date(first.date))
+            timeZone: 'America/Lima',
+            year: 'numeric',
+            month: '2-digit',
+            day: '2-digit',
+          }).format(new Date(first.date))
           : undefined,
         items: items.length > 0 ? items : [
           {
@@ -2349,7 +2349,7 @@ export class DocumentsService {
              "updatedAt" = NOW()
          WHERE UPPER("serie") = $3 AND "correlative" = $4`,
         [billingStatus, errorMsg, cleanSeries, cleanNum],
-      ).catch(() => {});
+      ).catch(() => { });
 
       await client.end();
       this.logger.log(`[CONTROL FINANZAS SYNC] Venta ${cleanSeries}-${cleanNum} sincronizada exitosamente con estado: ${billingStatus}`);
@@ -2466,13 +2466,13 @@ export class DocumentsService {
     const totalAmount = localDoc ? Number(localDoc.total_amount) : (cfSale ? Number(cfSale.amount) : null);
     const resolvedItems = localDoc?.items && localDoc.items.length > 0
       ? localDoc.items.map((it: any) => ({
-          code: it.code || 'PROD',
-          description: it.description,
-          unit_measure: it.unit_measure || 'NIU',
-          quantity: Number(it.quantity) || 1,
-          unit_price: Number(it.unit_price) || 0,
-          total: Number(it.total) || Number((Number(it.quantity || 1) * Number(it.unit_price || 0)).toFixed(2)),
-        }))
+        code: it.code || 'PROD',
+        description: it.description,
+        unit_measure: it.unit_measure || 'NIU',
+        quantity: Number(it.quantity) || 1,
+        unit_price: Number(it.unit_price) || 0,
+        total: Number(it.total) || Number((Number(it.quantity || 1) * Number(it.unit_price || 0)).toFixed(2)),
+      }))
       : (cfSale?.items && cfSale.items.length > 0 ? cfSale.items : []);
 
     return {
@@ -2487,18 +2487,18 @@ export class DocumentsService {
       items: resolvedItems,
       recipient: localDoc
         ? {
-            doc_type: localDoc.client_doc_type,
-            doc_number: localDoc.client_doc_number,
-            name: localDoc.client_name,
-            address: localDoc.client_address,
-          }
+          doc_type: localDoc.client_doc_type,
+          doc_number: localDoc.client_doc_number,
+          name: localDoc.client_name,
+          address: localDoc.client_address,
+        }
         : sunatResult.recipientDocNumber
-        ? {
+          ? {
             doc_type: sunatResult.recipientDocType || (sunatResult.recipientDocNumber.length === 11 ? '6' : '1'),
             doc_number: sunatResult.recipientDocNumber,
             name: cfSale?.customer_name || undefined,
           }
-        : null,
+          : null,
       sunat_response_code: sunatResult.responseCode,
       sunat_description: sunatResult.description || (officialStatus === 'ACEPTADO' ? 'El comprobante ha sido aceptado por SUNAT.' : 'Comprobante no aceptado'),
       sunat_notes: sunatResult.notes || [],
