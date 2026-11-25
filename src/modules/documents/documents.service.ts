@@ -101,6 +101,8 @@ export class DocumentsService {
     const refReasonCode = rawReasonCode ? String(rawReasonCode).padStart(2, '0') : (isCreditNote ? '01' : isDebitNote ? '02' : undefined);
     const refReasonDesc = dto.ref_documento?.motivo_descripcion || dto.referencia_motivo_descripcion || (isCreditNote ? 'ANULACION DE LA OPERACION' : isDebitNote ? 'AUMENTO EN EL VALOR' : undefined);
 
+    const hasRef = isNota || !!(dto.ref_documento && dto.ref_documento.serie) || !!dto.referencia_serie || dto.tipo_comprobante === '09';
+
     const internalDto: CreateDocumentDto = {
       idempotency_key: dto.idempotency_key,
       document_type: dto.tipo_comprobante,
@@ -114,11 +116,11 @@ export class DocumentsService {
       client_name: clientName,
       client_address: dto.cliente.direccion || '',
       client_email: dto.cliente.email || '',
-      ref_document_type: isNota ? refDocType : undefined,
-      ref_series: isNota ? refSeries : undefined,
-      ref_number: isNota ? refNum : undefined,
+      ref_document_type: hasRef ? refDocType : undefined,
+      ref_series: hasRef ? refSeries : undefined,
+      ref_number: hasRef ? refNum : undefined,
       ref_reason_code: isNota ? refReasonCode : undefined,
-      ref_reason_desc: isNota ? refReasonDesc : undefined,
+      ref_reason_desc: isNota ? refReasonDesc : (dto.ref_documento ? `GUIA VINCULADA A ${refSeries}-${String(refNum || '').padStart(8, '0')}` : undefined),
       items: dto.items.map((it) => ({
         code: it.codigo || '',
         description: it.descripcion,
